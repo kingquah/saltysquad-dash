@@ -150,13 +150,13 @@ export default function App() {
   return (
     <div style={{ fontFamily: "'Georgia', serif", background: "#faf7f3", minHeight: "100vh", display: "flex", flexDirection: "column" }}>
       {/* TOP NAV */}
-      <header style={{ background: "#fff", borderBottom: "2px solid #f0ebe4", padding: "0 24px", display: "flex", alignItems: "center", justifyContent: "space-between", height: 60, position: "sticky", top: 0, zIndex: 100 }}>
+      <header className="top-header" style={{ background: "#fff", borderBottom: "2px solid #f0ebe4", padding: "0 24px", display: "flex", alignItems: "center", justifyContent: "space-between", height: 60, position: "sticky", top: 0, zIndex: 100 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <span style={{ fontSize: 22, fontWeight: 800, color: "#c4704a", letterSpacing: "-0.5px" }}>SALTY</span>
           <span style={{ fontSize: 22, fontWeight: 400, color: "#5a4a3a", letterSpacing: "-0.5px" }}>SQUAD</span>
           <span style={{ background: "#fde8d8", color: "#c4704a", fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 99, marginLeft: 4, letterSpacing: 1 }}>DASH</span>
         </div>
-        <nav style={{ display: "flex", gap: 4 }}>
+        <nav className="top-nav" style={{ display: "flex", gap: 4 }}>
           {nav.map(n => (
             <button key={n.id} onClick={() => setPage(n.id)} style={{ background: page === n.id ? "#fde8d8" : "transparent", color: page === n.id ? "#c4704a" : "#7a6a5a", border: "none", borderRadius: 8, padding: "6px 14px", cursor: "pointer", fontSize: 13, fontWeight: page === n.id ? 700 : 400, transition: "all 0.15s" }}>
               {n.icon} {n.label}
@@ -166,15 +166,15 @@ export default function App() {
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <div style={{ width: 34, height: 34, borderRadius: "50%", background: "#c4704a", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700 }}>{currentUser.avatar}</div>
           <div>
-            <div style={{ fontSize: 13, fontWeight: 600, color: "#3a2a1a" }}>{currentUser.name}</div>
-            <div style={{ fontSize: 11, color: "#c4704a" }}>{currentUser.title}</div>
+            <div className="header-user-name" style={{ fontSize: 13, fontWeight: 600, color: "#3a2a1a" }}>{currentUser.name}</div>
+            <div className="header-user-title" style={{ fontSize: 11, color: "#c4704a" }}>{currentUser.title}</div>
           </div>
           <button onClick={() => setCurrentUser(null)} style={{ background: "none", border: "1px solid #e0d5cc", borderRadius: 8, padding: "4px 10px", cursor: "pointer", fontSize: 12, color: "#7a6a5a" }}>Sign out</button>
         </div>
       </header>
 
       {/* PAGE CONTENT */}
-      <main style={{ flex: 1, padding: "28px 32px", maxWidth: 1200, width: "100%", margin: "0 auto" }}>
+      <main className="main-content" style={{ flex: 1, padding: "28px 32px", maxWidth: 1200, width: "100%", margin: "0 auto" }}>
         {page === "dashboard" && <DashboardPage currentUser={currentUser} users={users} leaveRequests={leaveRequests} checklists={checklists} sales={sales} isAdmin={isAdmin} setPage={setPage} />}
         {page === "leave" && <LeavePage currentUser={currentUser} users={users} setUsers={setUsers} leaveRequests={leaveRequests} setLeaveRequests={setLeaveRequests} isAdmin={isAdmin} />}
         {page === "checklist" && <ChecklistPage currentUser={currentUser} users={users} checklists={checklists} setChecklists={setChecklists} isAdmin={isAdmin} />}
@@ -182,6 +182,16 @@ export default function App() {
         {page === "docs" && <DocsPage docModal={docModal} setDocModal={setDocModal} />}
         {page === "admin" && isAdmin && <AdminPage users={users} leaveRequests={leaveRequests} setLeaveRequests={setLeaveRequests} checklists={checklists} />}
       </main>
+
+      {/* BOTTOM TAB BAR — mobile only, controlled by CSS */}
+      <nav className="bottom-tab-bar">
+        {nav.map(n => (
+          <button key={n.id} className={`bottom-tab-btn${page === n.id ? " active" : ""}`} onClick={() => setPage(n.id)}>
+            <span className="bottom-tab-icon">{n.icon}</span>
+            <span className="bottom-tab-label">{n.label}</span>
+          </button>
+        ))}
+      </nav>
     </div>
   );
 }
@@ -201,7 +211,7 @@ function Login({ users, onLogin }) {
 
   return (
     <div style={{ minHeight: "100vh", background: "linear-gradient(135deg, #faf7f3 0%, #fde8d8 100%)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'Georgia', serif" }}>
-      <div style={{ background: "#fff", borderRadius: 20, padding: "48px 44px", width: 380, boxShadow: "0 8px 40px rgba(196,112,74,0.12)" }}>
+      <div className="login-card" style={{ background: "#fff", borderRadius: 20, padding: "48px 44px", width: 380, boxShadow: "0 8px 40px rgba(196,112,74,0.12)" }}>
         <div style={{ textAlign: "center", marginBottom: 32 }}>
           <div style={{ fontSize: 36, marginBottom: 8 }}>🌊</div>
           <div style={{ fontSize: 26, fontWeight: 800, color: "#c4704a" }}>SALTYSQUAD</div>
@@ -255,7 +265,7 @@ function DashboardPage({ currentUser, users, leaveRequests, checklists, sales, i
         <div style={{ color: "#9a8a7a", fontSize: 14, marginTop: 4 }}>{now.toLocaleDateString("en-GB", { weekday:"long", day:"numeric", month:"long", year:"numeric" })}</div>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 18, marginBottom: 28 }}>
+      <div className="cards-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 18, marginBottom: 28 }}>
         <Card title="Annual Leave Left" accent="#c4704a" onClick={() => setPage("leave")}>
           <div style={{ fontSize: 36, fontWeight: 800, color: "#c4704a" }}>{currentUser.annualLeft}<span style={{ fontSize: 16, color: "#9a8a7a", fontWeight: 400 }}> days</span></div>
           <Bar value={currentUser.annualLeft} max={12} color="#c4704a" />
@@ -282,7 +292,7 @@ function DashboardPage({ currentUser, users, leaveRequests, checklists, sales, i
           {pendingLeave.map(l => {
             const u = users.find(u => u.id === l.userId);
             return (
-              <div key={l.id} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"8px 0", borderBottom:"1px solid #f0ebe4" }}>
+              <div key={l.id} className="pending-item" style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"8px 0", borderBottom:"1px solid #f0ebe4" }}>
                 <div>
                   {isAdmin && <span style={{ fontWeight: 600, color: "#5a4a3a" }}>{u?.name} · </span>}
                   <span style={{ color: "#7a6a5a" }}>{l.type} Leave · {l.days} day{l.days > 1 ? "s" : ""}</span>
@@ -368,7 +378,7 @@ function LeavePage({ currentUser, users, setUsers, leaveRequests, setLeaveReques
   return (
     <div>
       <h2 style={{ fontSize: 22, fontWeight: 700, color: "#3a2a1a", marginBottom: 8 }}>🌴 Leave Management</h2>
-      <div style={{ display: "flex", gap: 16, marginBottom: 24 }}>
+      <div className="leave-balance-row" style={{ display: "flex", gap: 16, marginBottom: 24 }}>
         <div style={{ background: "#fde8d8", borderRadius: 12, padding: "14px 24px", textAlign: "center" }}>
           <div style={{ fontSize: 28, fontWeight: 800, color: "#c4704a" }}>{currentUser.annualLeft}</div>
           <div style={{ fontSize: 12, color: "#7a6a5a" }}>Annual Days Left</div>
@@ -382,7 +392,7 @@ function LeavePage({ currentUser, users, setUsers, leaveRequests, setLeaveReques
       </div>
 
       {tab === "apply" && (
-        <div style={{ background: "#fff", borderRadius: 16, padding: "28px", maxWidth: 500, boxShadow: "0 2px 12px rgba(0,0,0,0.06)" }}>
+        <div className="leave-form" style={{ background: "#fff", borderRadius: 16, padding: "28px", maxWidth: 500, boxShadow: "0 2px 12px rgba(0,0,0,0.06)" }}>
           <div style={{ display: "grid", gap: 16 }}>
             <div>
               <label style={labelStyle}>Leave Type</label>
@@ -390,7 +400,7 @@ function LeavePage({ currentUser, users, setUsers, leaveRequests, setLeaveReques
                 <option>Annual</option>
               </select>
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            <div className="date-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
               <div>
                 <label style={labelStyle}>From</label>
                 <input type="date" value={form.from} onChange={e => setForm({...form, from: e.target.value})} style={inputStyle} />
@@ -433,13 +443,13 @@ function LeavePage({ currentUser, users, setUsers, leaveRequests, setLeaveReques
 function LeaveCard({ l, users, showUser, isAdmin, onAction }) {
   const u = users.find(u => u.id === l.userId);
   return (
-    <div style={{ background: "#fff", borderRadius: 12, padding: "16px 20px", marginBottom: 10, boxShadow: "0 1px 6px rgba(0,0,0,0.05)", display: "flex", justifyContent: "space-between", alignItems: "center", borderLeft: `4px solid ${statusColor(l.status)}` }}>
+    <div className="leave-card" style={{ background: "#fff", borderRadius: 12, padding: "16px 20px", marginBottom: 10, boxShadow: "0 1px 6px rgba(0,0,0,0.05)", display: "flex", justifyContent: "space-between", alignItems: "center", borderLeft: `4px solid ${statusColor(l.status)}` }}>
       <div>
         {showUser && <div style={{ fontWeight: 700, color: "#3a2a1a", marginBottom: 2 }}>{u?.name}</div>}
         <div style={{ fontSize: 13, color: "#5a4a3a" }}><strong>{l.type}</strong> · {l.days} day{l.days > 1 ? "s" : ""} · {l.from} → {l.to}</div>
         <div style={{ fontSize: 12, color: "#9a8a7a", marginTop: 2 }}>{l.reason}</div>
       </div>
-      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+      <div className="leave-card-actions" style={{ display: "flex", alignItems: "center", gap: 8 }}>
         <span style={{ background: l.status === "Approved" ? "#eafaf1" : l.status === "Rejected" ? "#fdf0f0" : "#fff4e0", color: statusColor(l.status), fontSize: 12, fontWeight: 700, padding: "4px 12px", borderRadius: 99 }}>{l.status}</span>
         {isAdmin && l.status === "Pending" && (
           <>
@@ -506,7 +516,7 @@ function ChecklistPage({ currentUser, users, checklists, setChecklists, isAdmin 
       </div>
 
       {tab === "fill" && (
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 300px", gap: 20, alignItems: "start" }}>
+        <div className="checklist-layout" style={{ display: "grid", gridTemplateColumns: "1fr 300px", gap: 20, alignItems: "start" }}>
           <div>
             <div style={{ display: "flex", gap: 10, marginBottom: 20, flexWrap: "wrap" }}>
               {isAdmin && (
@@ -524,10 +534,10 @@ function ChecklistPage({ currentUser, users, checklists, setChecklists, isAdmin 
               <div key={section.id} style={{ background: "#fff", borderRadius: 14, padding: "18px 20px", marginBottom: 14, boxShadow: "0 1px 6px rgba(0,0,0,0.05)" }}>
                 <div style={{ fontWeight: 700, color: "#5a4a3a", fontSize: 14, marginBottom: 12, paddingBottom: 8, borderBottom: "1px solid #f0ebe4" }}>{section.label}</div>
                 {section.items.map(item => (
-                  <div key={item.id} onClick={() => toggle(item.id)} style={{ display: "flex", alignItems: "flex-start", gap: 12, padding: "8px 6px", borderRadius: 8, cursor: canEdit ? "pointer" : "default", transition: "background 0.1s" }}
+                  <div key={item.id} className="checklist-item" onClick={() => toggle(item.id)} style={{ display: "flex", alignItems: "flex-start", gap: 12, padding: "8px 6px", borderRadius: 8, cursor: canEdit ? "pointer" : "default", transition: "background 0.1s" }}
                     onMouseEnter={e => { if(canEdit) e.currentTarget.style.background="#faf7f3"; }}
                     onMouseLeave={e => e.currentTarget.style.background="transparent"}>
-                    <div style={{ width: 20, height: 20, borderRadius: 5, border: `2px solid ${cl.checks[item.id] ? "#c4704a" : "#d0c5bc"}`, background: cl.checks[item.id] ? "#c4704a" : "#fff", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, marginTop: 1, transition: "all 0.15s" }}>
+                    <div className="check-box" style={{ width: 20, height: 20, borderRadius: 5, border: `2px solid ${cl.checks[item.id] ? "#c4704a" : "#d0c5bc"}`, background: cl.checks[item.id] ? "#c4704a" : "#fff", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, marginTop: 1, transition: "all 0.15s" }}>
                       {cl.checks[item.id] && <span style={{ color: "#fff", fontSize: 12, fontWeight: 700 }}>✓</span>}
                     </div>
                     <span style={{ fontSize: 13, color: cl.checks[item.id] ? "#3a2a1a" : "#7a6a5a", lineHeight: 1.5 }}>{item.text}</span>
@@ -543,7 +553,7 @@ function ChecklistPage({ currentUser, users, checklists, setChecklists, isAdmin 
           </div>
 
           {/* Score card */}
-          <div style={{ position: "sticky", top: 80 }}>
+          <div className="score-card-sticky" style={{ position: "sticky", top: 80 }}>
             <div style={{ background: "#fff", borderRadius: 16, padding: "24px", boxShadow: "0 2px 12px rgba(0,0,0,0.06)", textAlign: "center" }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: "#9a8a7a", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 16 }}>Monthly Score</div>
               <div style={{ fontSize: 56, fontWeight: 800, color: score/TOTAL_ITEMS >= 0.8 ? "#2ecc71" : score/TOTAL_ITEMS >= 0.6 ? "#f39c12" : "#e74c3c", lineHeight: 1 }}>{score}</div>
@@ -574,8 +584,9 @@ function ChecklistPage({ currentUser, users, checklists, setChecklists, isAdmin 
 
       {tab === "overview" && isAdmin && (
         <div>
-          <div style={{ background: "#fff", borderRadius: 16, padding: "24px", boxShadow: "0 2px 12px rgba(0,0,0,0.06)", overflowX: "auto" }}>
+          <div style={{ background: "#fff", borderRadius: 16, padding: "24px", boxShadow: "0 2px 12px rgba(0,0,0,0.06)" }}>
             <div style={{ fontSize: 15, fontWeight: 700, color: "#3a2a1a", marginBottom: 20 }}>Month-on-Month Integrity Scores</div>
+            <div className="table-scroll">
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
               <thead>
                 <tr>
@@ -609,6 +620,7 @@ function ChecklistPage({ currentUser, users, checklists, setChecklists, isAdmin 
                 ))}
               </tbody>
             </table>
+            </div>
           </div>
         </div>
       )}
@@ -642,7 +654,8 @@ function SalesPage({ sales, setSales, isAdmin }) {
       {/* Chart */}
       <div style={{ background: "#fff", borderRadius: 16, padding: "24px", boxShadow: "0 2px 12px rgba(0,0,0,0.06)", marginBottom: 24 }}>
         <div style={{ fontSize: 13, fontWeight: 700, color: "#9a8a7a", marginBottom: 16 }}>Visual Overview</div>
-        <div style={{ display: "flex", alignItems: "flex-end", gap: 16, height: 160 }}>
+        <div className="sales-chart">
+        <div className="sales-chart-inner" style={{ display: "flex", alignItems: "flex-end", gap: 16, height: 160 }}>
           {sales.map((s, i) => {
             const tH = Math.round((s.target / maxVal) * 140);
             const aH = s.achieved > 0 ? Math.round((s.achieved / maxVal) * 140) : 0;
@@ -662,6 +675,7 @@ function SalesPage({ sales, setSales, isAdmin }) {
           <span>▪ <span style={{ background: "#e8ddd5", padding: "1px 6px", borderRadius: 4 }}>Target</span></span>
           <span>▪ <span style={{ background: "#c4704a", padding: "1px 6px", borderRadius: 4, color:"#fff" }}>Achieved</span></span>
           <span>▪ <span style={{ background: "#2ecc71", padding: "1px 6px", borderRadius: 4, color:"#fff" }}>Hit Target ✓</span></span>
+        </div>
         </div>
       </div>
 
@@ -738,7 +752,7 @@ function DocsPage({ docModal, setDocModal }) {
     <div>
       <h2 style={{ fontSize: 22, fontWeight: 700, color: "#3a2a1a", marginBottom: 6 }}>📁 Core Documents</h2>
       <p style={{ color: "#9a8a7a", fontSize: 13, marginBottom: 24 }}>Read-only reference documents for all team members.</p>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 16 }}>
+      <div className="docs-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 16 }}>
         {CORE_DOCS.map(doc => (
           <div key={doc.id} onClick={() => setDocModal(doc.id)} style={{ background: "#fff", borderRadius: 16, padding: "28px 24px", boxShadow: "0 2px 12px rgba(0,0,0,0.06)", cursor: "pointer", transition: "all 0.2s", border: "1.5px solid transparent" }}
             onMouseEnter={e => { e.currentTarget.style.transform="translateY(-3px)"; e.currentTarget.style.boxShadow="0 8px 24px rgba(196,112,74,0.12)"; e.currentTarget.style.borderColor="#fde8d8"; }}
@@ -765,7 +779,7 @@ function AdminPage({ users, leaveRequests, checklists }) {
       <h2 style={{ fontSize: 22, fontWeight: 700, color: "#3a2a1a", marginBottom: 6 }}>⚙️ Admin Overview</h2>
       <p style={{ color: "#9a8a7a", fontSize: 13, marginBottom: 24 }}>Full team snapshot for supervisors and admins.</p>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 16, marginBottom: 28 }}>
+      <div className="admin-stats-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 16, marginBottom: 28 }}>
         {[
           { label: "Total Staff", value: staffList.length, color: "#c4704a", icon: "👥" },
           { label: "Pending Leave", value: leaveRequests.filter(l=>l.status==="Pending").length, color: "#f39c12", icon: "⏳" },
@@ -782,6 +796,7 @@ function AdminPage({ users, leaveRequests, checklists }) {
 
       <div style={{ background: "#fff", borderRadius: 16, padding: "24px", boxShadow: "0 2px 12px rgba(0,0,0,0.06)" }}>
         <div style={{ fontWeight: 700, color: "#3a2a1a", fontSize: 15, marginBottom: 18 }}>Staff Leave Balances</div>
+        <div className="table-scroll">
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
           <thead>
             <tr>
@@ -814,6 +829,7 @@ function AdminPage({ users, leaveRequests, checklists }) {
             })}
           </tbody>
         </table>
+        </div>
       </div>
     </div>
   );

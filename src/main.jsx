@@ -1,4 +1,5 @@
 import { StrictMode, Component } from "react";
+import "./mobile.css";
 import { createRoot } from "react-dom/client";
 import App from "../saltysquad-dash.jsx";
 
