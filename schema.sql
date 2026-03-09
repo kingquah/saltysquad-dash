@@ -45,6 +45,14 @@ create table if not exists sales_targets (
   unique (month, year)
 );
 
+-- ── RLS: disable for all tables (app uses its own auth, not Supabase Auth) ──
+-- If RLS is on, the anon key cannot read/write any rows.
+-- Run these if your tables were created with RLS enabled via the dashboard.
+alter table users disable row level security;
+alter table leave_requests disable row level security;
+alter table checklist_submissions disable row level security;
+alter table sales_targets disable row level security;
+
 -- ── SEED DATA ────────────────────────────────────────────────────────────────
 
 insert into users (id, name, email, password, role, job_title, avatar, annual_left) values

@@ -160,6 +160,7 @@ export default function App() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    let cancelled = false;
     async function loadData() {
       const [usersRes, leaveRes, salesRes, checklistRes] = await Promise.all([
         supabase.from("users").select("*"),
@@ -167,6 +168,7 @@ export default function App() {
         supabase.from("sales_targets").select("*").order("id"),
         supabase.from("checklist_submissions").select("*"),
       ]);
+      if (cancelled) return;
 
       if (usersRes.data) setUsers(usersRes.data.map(mapUser));
       if (leaveRes.data) setLeaveRequests(leaveRes.data.map(mapLeave));
@@ -182,6 +184,7 @@ export default function App() {
       setLoading(false);
     }
     loadData();
+    return () => { cancelled = true; };
   }, []);
 
   if (loading) return <LoadingScreen />;
@@ -189,6 +192,38 @@ export default function App() {
   if (!currentUser) return <Login users={users} onLogin={u => { setCurrentUser(u); setPage("dashboard"); }} />;
 
   const isAdmin = currentUser.role === "admin" || currentUser.role === "supervisor";
+
+  async function handleLeaveAction(id, action) {
+    const req = leaveRequests.find(l => l.id === id);
+    if (!req) return;
+
+    const { error } = await supabase
+      .from("leave_requests")
+      .update({ status: action })
+      .eq("id", id);
+    if (error) {
+      console.error("[handleLeaveAction] Supabase error:", error);
+      return;
+    }
+
+    setLeaveRequests(prev => prev.map(l => l.id === id ? { ...l, status: action } : l));
+
+    if (action === "Approved") {
+      const u = users.find(u => u.id === req.userId);
+      if (!u) return;
+      const newBalance = Math.max(0, u.annualLeft - req.days);
+      const { error: balErr } = await supabase
+        .from("users")
+        .update({ annual_left: newBalance })
+        .eq("id", req.userId);
+      if (!balErr) {
+        setUsers(prev => prev.map(u => u.id !== req.userId ? u : { ...u, annualLeft: newBalance }));
+        if (req.userId === currentUser.id) {
+          setCurrentUser(prev => ({ ...prev, annualLeft: newBalance }));
+        }
+      }
+    }
+  }
 
   const nav = [
     { id: "dashboard", label: "Dashboard", icon: "🏠" },
@@ -227,8 +262,9 @@ export default function App() {
 
       {/* PAGE CONTENT */}
       <main className="main-content" style={{ flex: 1, padding: "28px 32px", maxWidth: 1200, width: "100%", margin: "0 auto" }}>
-        {page === "dashboard" && <DashboardPage currentUser={currentUser} users={users} leaveRequests={leaveRequests} checklists={checklists} sales={sales} isAdmin={isAdmin} setPage={setPage} />}
-        {page === "leave" && <LeavePage currentUser={currentUser} users={users} setUsers={setUsers} leaveRequests={leaveRequests} setLeaveRequests={setLeaveRequests} isAdmin={isAdmin} setCurrentUser={setCurrentUser} />}
+        {page === "dashboard" && <DashboardPage currentUser={currentUser} users={users} leaveRequests={leaveRequests} checklists={checklists} sales={sales} isAdmin={isAdmin} setPage={setPage} onLeaveAction={handleLeaveAction} />}
+        {page === "leave" && <LeavePage currentUser={currentUser} users={users} leaveRequests={leaveRequests} setLeaveRequests={setLeaveRequests} isAdmin={isAdmin} onLeaveAction={handleLeaveAction} />}
+
         {page === "checklist" && <ChecklistPage currentUser={currentUser} users={users} checklists={checklists} setChecklists={setChecklists} isAdmin={isAdmin} />}
         {page === "sales" && <SalesPage sales={sales} setSales={setSales} isAdmin={isAdmin} />}
         {page === "docs" && <DocsPage docModal={docModal} setDocModal={setDocModal} />}
@@ -327,7 +363,7 @@ function Login({ users, onLogin }) {
 
 // ── DASHBOARD PAGE ────────────────────────────────────────────────────────────
 
-function DashboardPage({ currentUser, users, leaveRequests, checklists, sales, isAdmin, setPage }) {
+function DashboardPage({ currentUser, users, leaveRequests, checklists, sales, isAdmin, setPage, onLeaveAction }) {
   const now = new Date();
   const monthKey = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}`;
   const myChecklist = checklists[currentUser.id]?.[monthKey];
@@ -379,13 +415,20 @@ function DashboardPage({ currentUser, users, leaveRequests, checklists, sales, i
           {pendingLeave.map(l => {
             const u = users.find(u => u.id === l.userId);
             return (
-              <div key={l.id} className="pending-item" style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"8px 0", borderBottom:"1px solid #f0ebe4" }}>
+              <div key={l.id} className="pending-item" style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"10px 0", borderBottom:"1px solid #f0ebe4" }}>
                 <div>
                   {isAdmin && <span style={{ fontWeight: 600, color: "#5a4a3a" }}>{u?.name} · </span>}
                   <span style={{ color: "#7a6a5a" }}>{l.type} Leave · {l.days} day{l.days > 1 ? "s" : ""}</span>
                   <span style={{ color: "#9a8a7a", fontSize: 12 }}> · {l.from} to {l.to}</span>
                 </div>
-                <span style={{ background: "#fff4e0", color: "#f39c12", fontSize: 12, fontWeight: 700, padding: "3px 10px", borderRadius: 99 }}>Pending</span>
+                {isAdmin ? (
+                  <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                    <button type="button" onClick={() => onLeaveAction(l.id, "Approved")} style={{ background: "#2ecc71", color: "#fff", border: "none", borderRadius: 7, padding: "5px 12px", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>✓ Approve</button>
+                    <button type="button" onClick={() => onLeaveAction(l.id, "Rejected")} style={{ background: "#e74c3c", color: "#fff", border: "none", borderRadius: 7, padding: "5px 12px", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>✕ Reject</button>
+                  </div>
+                ) : (
+                  <span style={{ background: "#fff4e0", color: "#f39c12", fontSize: 12, fontWeight: 700, padding: "3px 10px", borderRadius: 99 }}>Pending</span>
+                )}
               </div>
             );
           })}
@@ -420,7 +463,7 @@ function DashboardPage({ currentUser, users, leaveRequests, checklists, sales, i
 
 // ── LEAVE PAGE ────────────────────────────────────────────────────────────────
 
-function LeavePage({ currentUser, users, setUsers, leaveRequests, setLeaveRequests, isAdmin, setCurrentUser }) {
+function LeavePage({ currentUser, users, leaveRequests, setLeaveRequests, isAdmin, onLeaveAction }) {
   const [tab, setTab] = useState("apply");
   const [form, setForm] = useState({ type: "Annual", from: "", to: "", reason: "" });
   const [msg, setMsg] = useState("");
@@ -456,26 +499,6 @@ function LeavePage({ currentUser, users, setUsers, leaveRequests, setLeaveReques
     setLeaveRequests(prev => [...prev, mapLeave(data)]);
     setMsg("✅ Leave application submitted successfully!");
     setForm({ type: "Annual", from: "", to: "", reason: "" });
-  }
-
-  async function handleAction(id, action) {
-    const req = leaveRequests.find(l => l.id === id);
-    if (!req) return;
-
-    const { error } = await supabase.from("leave_requests").update({ status: action }).eq("id", id);
-    if (error) return;
-
-    setLeaveRequests(prev => prev.map(l => l.id === id ? { ...l, status: action } : l));
-
-    if (action === "Approved") {
-      const u = users.find(u => u.id === req.userId);
-      const newBalance = u.annualLeft - req.days;
-      await supabase.from("users").update({ annual_left: newBalance }).eq("id", req.userId);
-      setUsers(prev => prev.map(u => u.id !== req.userId ? u : { ...u, annualLeft: newBalance }));
-      if (req.userId === currentUser.id) {
-        setCurrentUser(prev => ({ ...prev, annualLeft: newBalance }));
-      }
-    }
   }
 
   const myRequests = leaveRequests.filter(l => l.userId === currentUser.id);
@@ -543,7 +566,7 @@ function LeavePage({ currentUser, users, setUsers, leaveRequests, setLeaveReques
       {tab === "all" && isAdmin && (
         <div>
           {allRequests.length === 0 ? <div style={{ color: "#9a8a7a", fontSize: 14 }}>No applications yet.</div> : (
-            allRequests.map(l => <LeaveCard key={l.id} l={l} users={users} showUser={true} isAdmin={isAdmin} onAction={handleAction} />)
+            allRequests.map(l => <LeaveCard key={l.id} l={l} users={users} showUser={true} isAdmin={isAdmin} onAction={onLeaveAction} />)
           )}
         </div>
       )}
@@ -564,8 +587,8 @@ function LeaveCard({ l, users, showUser, isAdmin, onAction }) {
         <span style={{ background: l.status === "Approved" ? "#eafaf1" : l.status === "Rejected" ? "#fdf0f0" : "#fff4e0", color: statusColor(l.status), fontSize: 12, fontWeight: 700, padding: "4px 12px", borderRadius: 99 }}>{l.status}</span>
         {isAdmin && l.status === "Pending" && (
           <>
-            <button onClick={() => onAction(l.id, "Approved")} style={{ background: "#2ecc71", color: "#fff", border: "none", borderRadius: 7, padding: "5px 12px", cursor: "pointer", fontSize: 12 }}>✓ Approve</button>
-            <button onClick={() => onAction(l.id, "Rejected")} style={{ background: "#e74c3c", color: "#fff", border: "none", borderRadius: 7, padding: "5px 12px", cursor: "pointer", fontSize: 12 }}>✕ Reject</button>
+            <button type="button" onClick={() => { console.log("[LeaveCard] Approve clicked, id:", l.id); onAction(l.id, "Approved"); }} style={{ background: "#2ecc71", color: "#fff", border: "none", borderRadius: 7, padding: "5px 12px", cursor: "pointer", fontSize: 12 }}>✓ Approve</button>
+            <button type="button" onClick={() => { console.log("[LeaveCard] Reject clicked, id:", l.id); onAction(l.id, "Rejected"); }} style={{ background: "#e74c3c", color: "#fff", border: "none", borderRadius: 7, padding: "5px 12px", cursor: "pointer", fontSize: 12 }}>✕ Reject</button>
           </>
         )}
       </div>
