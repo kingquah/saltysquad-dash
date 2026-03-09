@@ -1,17 +1,7 @@
 import { useState, useEffect } from "react";
+import { supabase } from "./supabase";
 
-// ── DATA ──────────────────────────────────────────────────────────────────────
-
-const USERS = [
-  { id: 1, name: "King Quah",     email: "king@saltycustoms.com",     password: "king123",    role: "admin",      avatar: "KQ", annualLeft: 12, title: "Founder" },
-  { id: 2, name: "Wilson Goh",    email: "wilson@saltycustoms.com",   password: "wilson123",  role: "supervisor", avatar: "WG", annualLeft: 12, title: "Managing Director" },
-  { id: 3, name: "Puteri Inez",   email: "puteri@saltycustoms.com",   password: "puteri123",  role: "supervisor", avatar: "PI", annualLeft: 12, title: "Vice President" },
-  { id: 4, name: "Adam Malek",    email: "adamo@saltycustoms.com",    password: "adam123",    role: "staff",      avatar: "AM", annualLeft: 12, title: "Creative Director" },
-  { id: 5, name: "Angeline Chua", email: "angeline@saltycustoms.com", password: "angeline123",role: "staff",      avatar: "AC", annualLeft: 12, title: "Head of Growth" },
-  { id: 6, name: "Leon Lim",      email: "leon@saltycustoms.com",     password: "leon123",    role: "staff",      avatar: "LL", annualLeft: 12, title: "Business Development Executive" },
-  { id: 7, name: "Eric Tai",      email: "jason@saltycustoms.com",    password: "eric123",    role: "staff",      avatar: "ET", annualLeft: 12, title: "Sales & Performance Executive" },
-  { id: 8, name: "Justin Shye",   email: "shye@saltycustoms.com",     password: "justin123",  role: "staff",      avatar: "JS", annualLeft: 12, title: "Special Officer" },
-];
+// ── STATIC / CONFIG DATA ──────────────────────────────────────────────────────
 
 const CHECKLIST_SECTIONS = [
   {
@@ -78,24 +68,43 @@ const CORE_DOCS = [
   },
 ];
 
-const INITIAL_LEAVE_REQUESTS = [];
+// ── DB ROW MAPPERS ────────────────────────────────────────────────────────────
 
-const INITIAL_SALES = [
-  { month: "Jan", target: 500000, achieved: 0 },
-  { month: "Feb", target: 500000, achieved: 0 },
-  { month: "Mar", target: 500000, achieved: 0 },
-  { month: "Apr", target: 500000, achieved: 0 },
-  { month: "May", target: 500000, achieved: 0 },
-  { month: "Jun", target: 500000, achieved: 0 },
-  { month: "Jul", target: 500000, achieved: 0 },
-  { month: "Aug", target: 500000, achieved: 0 },
-  { month: "Sep", target: 500000, achieved: 0 },
-  { month: "Oct", target: 500000, achieved: 0 },
-  { month: "Nov", target: 500000, achieved: 0 },
-  { month: "Dec", target: 500000, achieved: 0 },
-];
+function mapUser(row) {
+  return {
+    id: row.id,
+    name: row.name,
+    email: row.email,
+    password: row.password,
+    role: row.role,
+    title: row.job_title,
+    avatar: row.avatar,
+    annualLeft: row.annual_left,
+  };
+}
 
-const INITIAL_CHECKLISTS = {};
+function mapLeave(row) {
+  return {
+    id: row.id,
+    userId: row.user_id,
+    type: row.type,
+    from: row.from_date,
+    to: row.to_date,
+    days: row.days,
+    reason: row.reason,
+    status: row.status,
+  };
+}
+
+function mapSales(row) {
+  return {
+    id: row.id,
+    month: row.month,
+    year: row.year,
+    target: row.target,
+    achieved: row.achieved,
+  };
+}
 
 // ── HELPERS ───────────────────────────────────────────────────────────────────
 
@@ -123,16 +132,59 @@ function Bar({ value, max, color }) {
   );
 }
 
+// ── LOADING SCREEN ────────────────────────────────────────────────────────────
+
+function LoadingScreen() {
+  return (
+    <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#faf7f3", fontFamily: "'Georgia', serif" }}>
+      <style>{`@keyframes ss-spin { to { transform: rotate(360deg); } }`}</style>
+      <div style={{ textAlign: "center" }}>
+        <div style={{ width: 44, height: 44, borderRadius: "50%", border: "4px solid #fde8d8", borderTopColor: "#c4704a", animation: "ss-spin 0.7s linear infinite", margin: "0 auto 16px" }} />
+        <div style={{ fontSize: 22, fontWeight: 800, color: "#c4704a", marginBottom: 4 }}>SALTYSQUAD</div>
+        <div style={{ fontSize: 13, color: "#9a8a7a" }}>Loading your dashboard…</div>
+      </div>
+    </div>
+  );
+}
+
 // ── MAIN APP ──────────────────────────────────────────────────────────────────
 
 export default function App() {
   const [currentUser, setCurrentUser] = useState(null);
   const [page, setPage] = useState("dashboard");
-  const [users, setUsers] = useState(USERS);
-  const [leaveRequests, setLeaveRequests] = useState(INITIAL_LEAVE_REQUESTS);
-  const [sales, setSales] = useState(INITIAL_SALES);
-  const [checklists, setChecklists] = useState(INITIAL_CHECKLISTS);
+  const [users, setUsers] = useState([]);
+  const [leaveRequests, setLeaveRequests] = useState([]);
+  const [sales, setSales] = useState([]);
+  const [checklists, setChecklists] = useState({});
   const [docModal, setDocModal] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    async function loadData() {
+      const [usersRes, leaveRes, salesRes, checklistRes] = await Promise.all([
+        supabase.from("users").select("*"),
+        supabase.from("leave_requests").select("*"),
+        supabase.from("sales_targets").select("*").order("id"),
+        supabase.from("checklist_submissions").select("*"),
+      ]);
+
+      if (usersRes.data) setUsers(usersRes.data.map(mapUser));
+      if (leaveRes.data) setLeaveRequests(leaveRes.data.map(mapLeave));
+      if (salesRes.data) setSales(salesRes.data.map(mapSales));
+      if (checklistRes.data) {
+        const map = {};
+        for (const row of checklistRes.data) {
+          if (!map[row.user_id]) map[row.user_id] = {};
+          map[row.user_id][row.month_key] = { checks: row.checks || {}, remarks: row.remarks || "" };
+        }
+        setChecklists(map);
+      }
+      setLoading(false);
+    }
+    loadData();
+  }, []);
+
+  if (loading) return <LoadingScreen />;
 
   if (!currentUser) return <Login users={users} onLogin={u => { setCurrentUser(u); setPage("dashboard"); }} />;
 
@@ -176,7 +228,7 @@ export default function App() {
       {/* PAGE CONTENT */}
       <main className="main-content" style={{ flex: 1, padding: "28px 32px", maxWidth: 1200, width: "100%", margin: "0 auto" }}>
         {page === "dashboard" && <DashboardPage currentUser={currentUser} users={users} leaveRequests={leaveRequests} checklists={checklists} sales={sales} isAdmin={isAdmin} setPage={setPage} />}
-        {page === "leave" && <LeavePage currentUser={currentUser} users={users} setUsers={setUsers} leaveRequests={leaveRequests} setLeaveRequests={setLeaveRequests} isAdmin={isAdmin} />}
+        {page === "leave" && <LeavePage currentUser={currentUser} users={users} setUsers={setUsers} leaveRequests={leaveRequests} setLeaveRequests={setLeaveRequests} isAdmin={isAdmin} setCurrentUser={setCurrentUser} />}
         {page === "checklist" && <ChecklistPage currentUser={currentUser} users={users} checklists={checklists} setChecklists={setChecklists} isAdmin={isAdmin} />}
         {page === "sales" && <SalesPage sales={sales} setSales={setSales} isAdmin={isAdmin} />}
         {page === "docs" && <DocsPage docModal={docModal} setDocModal={setDocModal} />}
@@ -205,7 +257,6 @@ function Login({ users, onLogin }) {
 
   function handleLogin(e) {
     if (e) e.preventDefault();
-    console.log("[Saltysquad] Login attempt:", email);
     const trimmedEmail = email.trim().toLowerCase();
     const u = users.find(u => u.email.toLowerCase() === trimmedEmail && u.password === password);
     if (u) { setError(""); onLogin(u); }
@@ -215,7 +266,7 @@ function Login({ users, onLogin }) {
   const inputStyle = {
     width: "100%", marginTop: 6, padding: "10px 14px",
     border: "1.5px solid #e8ddd5", borderRadius: 10,
-    fontSize: 16, /* 16px prevents iOS Safari zoom on focus */
+    fontSize: 16,
     outline: "none", boxSizing: "border-box", fontFamily: "inherit",
     WebkitAppearance: "none", appearance: "none",
     touchAction: "manipulation",
@@ -369,7 +420,7 @@ function DashboardPage({ currentUser, users, leaveRequests, checklists, sales, i
 
 // ── LEAVE PAGE ────────────────────────────────────────────────────────────────
 
-function LeavePage({ currentUser, users, setUsers, leaveRequests, setLeaveRequests, isAdmin }) {
+function LeavePage({ currentUser, users, setUsers, leaveRequests, setLeaveRequests, isAdmin, setCurrentUser }) {
   const [tab, setTab] = useState("apply");
   const [form, setForm] = useState({ type: "Annual", from: "", to: "", reason: "" });
   const [msg, setMsg] = useState("");
@@ -380,26 +431,50 @@ function LeavePage({ currentUser, users, setUsers, leaveRequests, setLeaveReques
     return Math.max(0, Math.round((d2 - d1) / 86400000) + 1);
   }
 
-  function handleApply() {
+  async function handleApply() {
     const days = calcDays(form.from, form.to);
     if (!form.from || !form.to || !form.reason) { setMsg("Please fill in all fields."); return; }
     if (days <= 0) { setMsg("End date must be on or after start date."); return; }
     const bal = currentUser.annualLeft;
     if (days > bal) { setMsg(`Insufficient annual leave balance (${bal} days left).`); return; }
-    setLeaveRequests(prev => [...prev, { id: Date.now(), userId: currentUser.id, ...form, days, status: "Pending" }]);
+
+    const { data, error } = await supabase
+      .from("leave_requests")
+      .insert({
+        user_id: currentUser.id,
+        type: form.type,
+        from_date: form.from,
+        to_date: form.to,
+        days,
+        reason: form.reason,
+        status: "Pending",
+      })
+      .select()
+      .single();
+
+    if (error) { setMsg("❌ Failed to submit. Please try again."); return; }
+    setLeaveRequests(prev => [...prev, mapLeave(data)]);
     setMsg("✅ Leave application submitted successfully!");
     setForm({ type: "Annual", from: "", to: "", reason: "" });
   }
 
-  function handleAction(id, action) {
+  async function handleAction(id, action) {
     const req = leaveRequests.find(l => l.id === id);
     if (!req) return;
+
+    const { error } = await supabase.from("leave_requests").update({ status: action }).eq("id", id);
+    if (error) return;
+
     setLeaveRequests(prev => prev.map(l => l.id === id ? { ...l, status: action } : l));
+
     if (action === "Approved") {
-      setUsers(prev => prev.map(u => {
-        if (u.id !== req.userId) return u;
-        return { ...u, annualLeft: u.annualLeft - req.days };
-      }));
+      const u = users.find(u => u.id === req.userId);
+      const newBalance = u.annualLeft - req.days;
+      await supabase.from("users").update({ annual_left: newBalance }).eq("id", req.userId);
+      setUsers(prev => prev.map(u => u.id !== req.userId ? u : { ...u, annualLeft: newBalance }));
+      if (req.userId === currentUser.id) {
+        setCurrentUser(prev => ({ ...prev, annualLeft: newBalance }));
+      }
     }
   }
 
@@ -512,21 +587,38 @@ function ChecklistPage({ currentUser, users, checklists, setChecklists, isAdmin 
   const isCurrentUserMonth = viewUserId === currentUser.id && selectedMonth === monthKey;
   const canEdit = isCurrentUserMonth;
 
-  function toggle(id) {
+  // Local remarks state to avoid a DB write on every keystroke
+  const [localRemarks, setLocalRemarks] = useState(cl.remarks || "");
+  useEffect(() => { setLocalRemarks(cl.remarks || ""); }, [viewUserId, selectedMonth, cl.remarks]);
+
+  async function toggle(id) {
     if (!canEdit) return;
-    setChecklists(prev => ({
-      ...prev,
-      [viewUserId]: {
-        ...prev[viewUserId],
-        [selectedMonth]: { ...cl, checks: { ...cl.checks, [id]: !cl.checks[id] } }
-      }
-    }));
+    const newChecks = { ...cl.checks, [id]: !cl.checks[id] };
+    const { error } = await supabase
+      .from("checklist_submissions")
+      .upsert(
+        { user_id: viewUserId, month_key: selectedMonth, checks: newChecks, remarks: cl.remarks || "" },
+        { onConflict: "user_id,month_key" }
+      );
+    if (!error) {
+      setChecklists(prev => ({
+        ...prev,
+        [viewUserId]: { ...(prev[viewUserId] || {}), [selectedMonth]: { ...cl, checks: newChecks } },
+      }));
+    }
   }
 
-  function setRemarks(r) {
+  async function saveRemarks() {
+    if (localRemarks === (cl.remarks || "")) return;
+    await supabase
+      .from("checklist_submissions")
+      .upsert(
+        { user_id: viewUserId, month_key: selectedMonth, checks: cl.checks || {}, remarks: localRemarks },
+        { onConflict: "user_id,month_key" }
+      );
     setChecklists(prev => ({
       ...prev,
-      [viewUserId]: { ...prev[viewUserId], [selectedMonth]: { ...cl, remarks: r } }
+      [viewUserId]: { ...(prev[viewUserId] || {}), [selectedMonth]: { ...cl, remarks: localRemarks } },
     }));
   }
 
@@ -584,7 +676,15 @@ function ChecklistPage({ currentUser, users, checklists, setChecklists, isAdmin 
 
             <div style={{ background: "#fff", borderRadius: 14, padding: "18px 20px", boxShadow: "0 1px 6px rgba(0,0,0,0.05)" }}>
               <div style={{ fontWeight: 700, color: "#5a4a3a", fontSize: 14, marginBottom: 10 }}>📝 Remarks</div>
-              <textarea value={cl.remarks || ""} onChange={e => setRemarks(e.target.value)} disabled={!canEdit} rows={3} placeholder={canEdit ? "Add your self-assessment remarks here..." : "No remarks added."} style={{ ...inputStyle, resize: "vertical", width: "100%", boxSizing: "border-box" }} />
+              <textarea
+                value={localRemarks}
+                onChange={e => setLocalRemarks(e.target.value)}
+                onBlur={saveRemarks}
+                disabled={!canEdit}
+                rows={3}
+                placeholder={canEdit ? "Add your self-assessment remarks here..." : "No remarks added."}
+                style={{ ...inputStyle, resize: "vertical", width: "100%", boxSizing: "border-box" }}
+              />
             </div>
           </div>
 
@@ -675,8 +775,17 @@ function SalesPage({ sales, setSales, isAdmin }) {
     setEditVals({ target: sales[idx].target, achieved: sales[idx].achieved });
   }
 
-  function saveEdit(idx) {
-    setSales(prev => prev.map((s, i) => i === idx ? { ...s, target: Number(editVals.target), achieved: Number(editVals.achieved) } : s));
+  async function saveEdit(idx) {
+    const s = sales[idx];
+    const newTarget = Number(editVals.target);
+    const newAchieved = Number(editVals.achieved);
+    const { error } = await supabase
+      .from("sales_targets")
+      .update({ target: newTarget, achieved: newAchieved })
+      .eq("id", s.id);
+    if (!error) {
+      setSales(prev => prev.map((row, i) => i !== idx ? row : { ...row, target: newTarget, achieved: newAchieved }));
+    }
     setEditing(null);
   }
 
