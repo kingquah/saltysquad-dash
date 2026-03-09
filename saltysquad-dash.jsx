@@ -165,7 +165,7 @@ export default function App() {
       const [usersRes, leaveRes, salesRes, checklistRes] = await Promise.all([
         supabase.from("users").select("*"),
         supabase.from("leave_requests").select("*"),
-        supabase.from("sales_targets").select("*").eq("year", new Date().getFullYear()).order("id"),
+        supabase.from("sales_targets").select("*").order("year").order("id"),
         supabase.from("checklist_submissions").select("*"),
       ]);
       if (cancelled) return;
@@ -263,12 +263,12 @@ export default function App() {
       {/* PAGE CONTENT */}
       <main className="main-content" style={{ flex: 1, padding: "28px 32px", maxWidth: 1200, width: "100%", margin: "0 auto" }}>
         {page === "dashboard" && <DashboardPage currentUser={currentUser} users={users} leaveRequests={leaveRequests} checklists={checklists} sales={sales} isAdmin={isAdmin} setPage={setPage} onLeaveAction={handleLeaveAction} />}
-        {page === "leave" && <LeavePage currentUser={currentUser} users={users} leaveRequests={leaveRequests} setLeaveRequests={setLeaveRequests} isAdmin={isAdmin} onLeaveAction={handleLeaveAction} />}
+        {page === "leave" && <LeavePage currentUser={currentUser} users={users} setUsers={setUsers} leaveRequests={leaveRequests} setLeaveRequests={setLeaveRequests} isAdmin={isAdmin} onLeaveAction={handleLeaveAction} />}
 
         {page === "checklist" && <ChecklistPage currentUser={currentUser} users={users} checklists={checklists} setChecklists={setChecklists} isAdmin={isAdmin} />}
         {page === "sales" && <SalesPage sales={sales} setSales={setSales} isAdmin={isAdmin} />}
         {page === "docs" && <DocsPage docModal={docModal} setDocModal={setDocModal} />}
-        {page === "admin" && isAdmin && <AdminPage users={users} leaveRequests={leaveRequests} setLeaveRequests={setLeaveRequests} checklists={checklists} />}
+        {page === "admin" && isAdmin && <AdminPage users={users} setUsers={setUsers} leaveRequests={leaveRequests} setLeaveRequests={setLeaveRequests} checklists={checklists} />}
       </main>
 
       {/* BOTTOM TAB BAR — mobile only, controlled by CSS */}
@@ -374,7 +374,7 @@ function DashboardPage({ currentUser, users, leaveRequests, checklists, sales, i
   const myChecklist = checklists[currentUser.id]?.[monthKey];
   const myScore = myChecklist ? pct(myChecklist.checks) : null;
   const pendingLeave = leaveRequests.filter(l => l.status === "Pending" && (isAdmin || l.userId === currentUser.id));
-  const staffList = users.filter(u => u.role === "staff");
+  const staffList = users.filter(u => u.role !== "admin");
 
   // ── Sales calculations ──
   const currentSales = sales.find(s => s.month === currentMonthName && s.year === currentYear);
@@ -656,10 +656,20 @@ function DashboardPage({ currentUser, users, leaveRequests, checklists, sales, i
 
 // ── LEAVE PAGE ────────────────────────────────────────────────────────────────
 
-function LeavePage({ currentUser, users, leaveRequests, setLeaveRequests, isAdmin, onLeaveAction }) {
+function LeavePage({ currentUser, users, setUsers, leaveRequests, setLeaveRequests, isAdmin, onLeaveAction }) {
   const [tab, setTab] = useState("apply");
-  const [form, setForm] = useState({ type: "Annual", from: "", to: "", reason: "" });
+  const today = new Date().toISOString().slice(0, 10);
+  const [form, setForm] = useState({ type: "Annual", from: today, to: today, reason: "" });
   const [msg, setMsg] = useState("");
+
+  // Admin: record leave for staff
+  const nonAdminUsers = users.filter(u => u.role !== "admin");
+  const [recordForm, setRecordForm] = useState({ userId: "", type: "Annual", from: today, to: today, reason: "", approveNow: false });
+  const [recordMsg, setRecordMsg] = useState("");
+
+  // Admin: edit existing leave
+  const [editingLeave, setEditingLeave] = useState(null);
+  const [editLeaveVals, setEditLeaveVals] = useState({});
 
   function calcDays(from, to) {
     if (!from || !to) return 0;
@@ -676,27 +686,80 @@ function LeavePage({ currentUser, users, leaveRequests, setLeaveRequests, isAdmi
 
     const { data, error } = await supabase
       .from("leave_requests")
-      .insert({
-        user_id: currentUser.id,
-        type: form.type,
-        from_date: form.from,
-        to_date: form.to,
-        days,
-        reason: form.reason,
-        status: "Pending",
-      })
-      .select()
-      .single();
+      .insert({ user_id: currentUser.id, type: form.type, from_date: form.from, to_date: form.to, days, reason: form.reason, status: "Pending" })
+      .select().single();
 
     if (error) { setMsg("❌ Failed to submit. Please try again."); return; }
     setLeaveRequests(prev => [...prev, mapLeave(data)]);
     setMsg("✅ Leave application submitted successfully!");
-    setForm({ type: "Annual", from: "", to: "", reason: "" });
+    setForm({ type: "Annual", from: today, to: today, reason: "" });
+  }
+
+  async function handleRecord() {
+    const uid = Number(recordForm.userId) || nonAdminUsers[0]?.id;
+    if (!uid || !recordForm.from || !recordForm.to || !recordForm.reason) { setRecordMsg("Please fill in all fields."); return; }
+    const days = calcDays(recordForm.from, recordForm.to);
+    if (days <= 0) { setRecordMsg("End date must be on or after start date."); return; }
+    const targetUser = users.find(u => u.id === uid);
+    const status = recordForm.approveNow ? "Approved" : "Pending";
+
+    const { data, error } = await supabase
+      .from("leave_requests")
+      .insert({ user_id: uid, type: recordForm.type, from_date: recordForm.from, to_date: recordForm.to, days, reason: recordForm.reason, status })
+      .select().single();
+
+    if (error) { setRecordMsg("❌ Failed to record leave."); return; }
+    setLeaveRequests(prev => [...prev, mapLeave(data)]);
+
+    if (recordForm.approveNow && targetUser) {
+      const newBalance = Math.max(0, targetUser.annualLeft - days);
+      const { error: balErr } = await supabase.from("users").update({ annual_left: newBalance }).eq("id", uid);
+      if (!balErr) setUsers(prev => prev.map(u => u.id !== uid ? u : { ...u, annualLeft: newBalance }));
+    }
+
+    setRecordMsg(`✅ Leave recorded for ${targetUser?.name || "staff"}!`);
+    setRecordForm(prev => ({ ...prev, from: today, to: today, reason: "", approveNow: false }));
+  }
+
+  function startEditLeave(l) {
+    setEditingLeave(l.id);
+    setEditLeaveVals({ type: l.type, from: l.from, to: l.to, reason: l.reason, status: l.status });
+  }
+
+  async function handleSaveEditLeave(l) {
+    const days = calcDays(editLeaveVals.from, editLeaveVals.to);
+    if (days <= 0) return;
+    const { error } = await supabase.from("leave_requests").update({
+      type: editLeaveVals.type, from_date: editLeaveVals.from, to_date: editLeaveVals.to,
+      days, reason: editLeaveVals.reason, status: editLeaveVals.status,
+    }).eq("id", l.id);
+    if (!error) {
+      setLeaveRequests(prev => prev.map(r => r.id !== l.id ? r : {
+        ...r, type: editLeaveVals.type, from: editLeaveVals.from, to: editLeaveVals.to,
+        days, reason: editLeaveVals.reason, status: editLeaveVals.status,
+      }));
+      if (editLeaveVals.status === "Approved" && l.status !== "Approved") {
+        const targetUser = users.find(u => u.id === l.userId);
+        if (targetUser) {
+          const newBalance = Math.max(0, targetUser.annualLeft - days);
+          const { error: balErr } = await supabase.from("users").update({ annual_left: newBalance }).eq("id", l.userId);
+          if (!balErr) setUsers(prev => prev.map(u => u.id !== l.userId ? u : { ...u, annualLeft: newBalance }));
+        }
+      }
+    }
+    setEditingLeave(null);
+  }
+
+  async function handleDeleteLeave(id) {
+    if (!window.confirm("Delete this leave request? This cannot be undone.")) return;
+    const { error } = await supabase.from("leave_requests").delete().eq("id", id);
+    if (!error) setLeaveRequests(prev => prev.filter(r => r.id !== id));
   }
 
   const myRequests = leaveRequests.filter(l => l.userId === currentUser.id);
   const allRequests = leaveRequests;
   const days = calcDays(form.from, form.to);
+  const recordDays = calcDays(recordForm.from, recordForm.to);
 
   const TabBtn = ({ id, label }) => (
     <button onClick={() => setTab(id)} style={{ background: tab === id ? "#c4704a" : "#fff", color: tab === id ? "#fff" : "#7a6a5a", border: "1.5px solid " + (tab === id ? "#c4704a" : "#e8ddd5"), borderRadius: 8, padding: "7px 18px", cursor: "pointer", fontSize: 13, fontWeight: 600 }}>{label}</button>
@@ -712,10 +775,11 @@ function LeavePage({ currentUser, users, leaveRequests, setLeaveRequests, isAdmi
         </div>
       </div>
 
-      <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
+      <div style={{ display: "flex", gap: 8, marginBottom: 20, flexWrap: "wrap" }}>
         <TabBtn id="apply" label="Apply for Leave" />
         <TabBtn id="history" label="My History" />
         {isAdmin && <TabBtn id="all" label="All Requests" />}
+        {isAdmin && <TabBtn id="record" label="Record for Staff" />}
       </div>
 
       {tab === "apply" && (
@@ -737,7 +801,7 @@ function LeavePage({ currentUser, users, leaveRequests, setLeaveRequests, isAdmi
                 <input type="date" value={form.to} onChange={e => setForm({...form, to: e.target.value})} style={inputStyle} />
               </div>
             </div>
-            {days > 0 && <div style={{ background: "#fde8d8", borderRadius: 8, padding: "8px 12px", fontSize: 13, color: "#c4704a", fontWeight: 600 }}>📅 {days} working day{days > 1 ? "s" : ""} selected</div>}
+            {days > 0 && <div style={{ background: "#fde8d8", borderRadius: 8, padding: "8px 12px", fontSize: 13, color: "#c4704a", fontWeight: 600 }}>📅 {days} day{days > 1 ? "s" : ""} selected</div>}
             <div>
               <label style={labelStyle}>Reason</label>
               <textarea value={form.reason} onChange={e => setForm({...form, reason: e.target.value})} rows={3} placeholder="Brief reason for leave..." style={{ ...inputStyle, resize: "vertical" }} />
@@ -759,15 +823,95 @@ function LeavePage({ currentUser, users, leaveRequests, setLeaveRequests, isAdmi
       {tab === "all" && isAdmin && (
         <div>
           {allRequests.length === 0 ? <div style={{ color: "#9a8a7a", fontSize: 14 }}>No applications yet.</div> : (
-            allRequests.map(l => <LeaveCard key={l.id} l={l} users={users} showUser={true} isAdmin={isAdmin} onAction={onLeaveAction} />)
+            allRequests.map(l =>
+              editingLeave === l.id ? (
+                <div key={l.id} style={{ background: "#fff", borderRadius: 12, padding: "18px 20px", marginBottom: 10, boxShadow: "0 2px 10px rgba(0,0,0,0.08)", border: "1.5px solid #c4704a" }}>
+                  <div style={{ fontWeight: 700, color: "#c4704a", marginBottom: 14, fontSize: 14 }}>Edit Leave — {users.find(u => u.id === l.userId)?.name}</div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
+                    <div>
+                      <label style={labelStyle}>Type</label>
+                      <select value={editLeaveVals.type} onChange={e => setEditLeaveVals({...editLeaveVals, type: e.target.value})} style={inputStyle}>
+                        <option>Annual</option><option>Sick</option><option>Unpaid</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label style={labelStyle}>Status</label>
+                      <select value={editLeaveVals.status} onChange={e => setEditLeaveVals({...editLeaveVals, status: e.target.value})} style={inputStyle}>
+                        <option>Pending</option><option>Approved</option><option>Rejected</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label style={labelStyle}>From</label>
+                      <input type="date" value={editLeaveVals.from} onChange={e => setEditLeaveVals({...editLeaveVals, from: e.target.value})} style={inputStyle} />
+                    </div>
+                    <div>
+                      <label style={labelStyle}>To</label>
+                      <input type="date" value={editLeaveVals.to} onChange={e => setEditLeaveVals({...editLeaveVals, to: e.target.value})} style={inputStyle} />
+                    </div>
+                  </div>
+                  <div style={{ marginBottom: 12 }}>
+                    <label style={labelStyle}>Reason</label>
+                    <textarea value={editLeaveVals.reason} onChange={e => setEditLeaveVals({...editLeaveVals, reason: e.target.value})} rows={2} style={{ ...inputStyle, resize: "vertical" }} />
+                  </div>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button onClick={() => handleSaveEditLeave(l)} style={{ background: "#c4704a", color: "#fff", border: "none", borderRadius: 8, padding: "8px 16px", cursor: "pointer", fontSize: 13, fontWeight: 600 }}>Save Changes</button>
+                    <button onClick={() => setEditingLeave(null)} style={{ background: "#f0ebe4", color: "#7a6a5a", border: "none", borderRadius: 8, padding: "8px 16px", cursor: "pointer", fontSize: 13 }}>Cancel</button>
+                  </div>
+                </div>
+              ) : (
+                <LeaveCard key={l.id} l={l} users={users} showUser={true} isAdmin={isAdmin} onAction={onLeaveAction}
+                  onEdit={() => startEditLeave(l)} onDelete={() => handleDeleteLeave(l.id)} />
+              )
+            )
           )}
+        </div>
+      )}
+
+      {tab === "record" && isAdmin && (
+        <div className="leave-form" style={{ background: "#fff", borderRadius: 16, padding: "28px", maxWidth: 500, boxShadow: "0 2px 12px rgba(0,0,0,0.06)" }}>
+          <div style={{ fontWeight: 700, color: "#3a2a1a", marginBottom: 16, fontSize: 15 }}>Record Leave on Behalf of Staff</div>
+          <div style={{ display: "grid", gap: 16 }}>
+            <div>
+              <label style={labelStyle}>Staff Member</label>
+              <select value={recordForm.userId || nonAdminUsers[0]?.id} onChange={e => setRecordForm({...recordForm, userId: Number(e.target.value)})} style={inputStyle}>
+                {nonAdminUsers.map(u => <option key={u.id} value={u.id}>{u.name} ({u.title})</option>)}
+              </select>
+            </div>
+            <div>
+              <label style={labelStyle}>Leave Type</label>
+              <select value={recordForm.type} onChange={e => setRecordForm({...recordForm, type: e.target.value})} style={inputStyle}>
+                <option>Annual</option><option>Sick</option><option>Unpaid</option>
+              </select>
+            </div>
+            <div className="date-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              <div>
+                <label style={labelStyle}>From</label>
+                <input type="date" value={recordForm.from} onChange={e => setRecordForm({...recordForm, from: e.target.value})} style={inputStyle} />
+              </div>
+              <div>
+                <label style={labelStyle}>To</label>
+                <input type="date" value={recordForm.to} onChange={e => setRecordForm({...recordForm, to: e.target.value})} style={inputStyle} />
+              </div>
+            </div>
+            {recordDays > 0 && <div style={{ background: "#fde8d8", borderRadius: 8, padding: "8px 12px", fontSize: 13, color: "#c4704a", fontWeight: 600 }}>📅 {recordDays} day{recordDays > 1 ? "s" : ""} selected</div>}
+            <div>
+              <label style={labelStyle}>Reason</label>
+              <textarea value={recordForm.reason} onChange={e => setRecordForm({...recordForm, reason: e.target.value})} rows={3} placeholder="Brief reason..." style={{ ...inputStyle, resize: "vertical" }} />
+            </div>
+            <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", fontSize: 13, color: "#3a2a1a" }}>
+              <input type="checkbox" checked={recordForm.approveNow} onChange={e => setRecordForm({...recordForm, approveNow: e.target.checked})} style={{ width: 16, height: 16, cursor: "pointer" }} />
+              Approve immediately (deducts from annual balance)
+            </label>
+            {recordMsg && <div style={{ color: recordMsg.startsWith("✅") ? "#2ecc71" : "#e74c3c", fontSize: 13 }}>{recordMsg}</div>}
+            <button onClick={handleRecord} style={{ background: "#c4704a", color: "#fff", border: "none", borderRadius: 10, padding: "12px", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>Record Leave</button>
+          </div>
         </div>
       )}
     </div>
   );
 }
 
-function LeaveCard({ l, users, showUser, isAdmin, onAction }) {
+function LeaveCard({ l, users, showUser, isAdmin, onAction, onEdit, onDelete }) {
   const u = users.find(u => u.id === l.userId);
   return (
     <div className="leave-card" style={{ background: "#fff", borderRadius: 12, padding: "16px 20px", marginBottom: 10, boxShadow: "0 1px 6px rgba(0,0,0,0.05)", display: "flex", justifyContent: "space-between", alignItems: "center", borderLeft: `4px solid ${statusColor(l.status)}` }}>
@@ -776,13 +920,19 @@ function LeaveCard({ l, users, showUser, isAdmin, onAction }) {
         <div style={{ fontSize: 13, color: "#5a4a3a" }}><strong>{l.type}</strong> · {l.days} day{l.days > 1 ? "s" : ""} · {l.from} → {l.to}</div>
         <div style={{ fontSize: 12, color: "#9a8a7a", marginTop: 2 }}>{l.reason}</div>
       </div>
-      <div className="leave-card-actions" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+      <div className="leave-card-actions" style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
         <span style={{ background: l.status === "Approved" ? "#eafaf1" : l.status === "Rejected" ? "#fdf0f0" : "#fff4e0", color: statusColor(l.status), fontSize: 12, fontWeight: 700, padding: "4px 12px", borderRadius: 99 }}>{l.status}</span>
         {isAdmin && l.status === "Pending" && (
           <>
-            <button type="button" onClick={() => { console.log("[LeaveCard] Approve clicked, id:", l.id); onAction(l.id, "Approved"); }} style={{ background: "#2ecc71", color: "#fff", border: "none", borderRadius: 7, padding: "5px 12px", cursor: "pointer", fontSize: 12 }}>✓ Approve</button>
-            <button type="button" onClick={() => { console.log("[LeaveCard] Reject clicked, id:", l.id); onAction(l.id, "Rejected"); }} style={{ background: "#e74c3c", color: "#fff", border: "none", borderRadius: 7, padding: "5px 12px", cursor: "pointer", fontSize: 12 }}>✕ Reject</button>
+            <button type="button" onClick={() => onAction(l.id, "Approved")} style={{ background: "#2ecc71", color: "#fff", border: "none", borderRadius: 7, padding: "5px 12px", cursor: "pointer", fontSize: 12 }}>✓ Approve</button>
+            <button type="button" onClick={() => onAction(l.id, "Rejected")} style={{ background: "#e74c3c", color: "#fff", border: "none", borderRadius: 7, padding: "5px 12px", cursor: "pointer", fontSize: 12 }}>✕ Reject</button>
           </>
+        )}
+        {isAdmin && onEdit && (
+          <button type="button" onClick={onEdit} style={{ background: "#f0ebe4", color: "#7a6a5a", border: "none", borderRadius: 7, padding: "5px 10px", cursor: "pointer", fontSize: 12 }}>✏️</button>
+        )}
+        {isAdmin && onDelete && (
+          <button type="button" onClick={onDelete} style={{ background: "#fdf0f0", color: "#e74c3c", border: "none", borderRadius: 7, padding: "5px 10px", cursor: "pointer", fontSize: 12 }}>🗑</button>
         )}
       </div>
     </div>
@@ -801,7 +951,7 @@ function ChecklistPage({ currentUser, users, checklists, setChecklists, isAdmin 
   const viewUserId = isAdmin ? selectedUser : currentUser.id;
   const cl = checklists[viewUserId]?.[selectedMonth] || { checks: {}, remarks: "" };
   const isCurrentUserMonth = viewUserId === currentUser.id && selectedMonth === monthKey;
-  const canEdit = isCurrentUserMonth;
+  const canEdit = isAdmin || isCurrentUserMonth;
 
   // Local remarks state to avoid a DB write on every keystroke
   const [localRemarks, setLocalRemarks] = useState(cl.remarks || "");
@@ -810,17 +960,24 @@ function ChecklistPage({ currentUser, users, checklists, setChecklists, isAdmin 
   async function toggle(id) {
     if (!canEdit) return;
     const newChecks = { ...cl.checks, [id]: !cl.checks[id] };
+    // Optimistic update — checkbox responds immediately
+    setChecklists(prev => ({
+      ...prev,
+      [viewUserId]: { ...(prev[viewUserId] || {}), [selectedMonth]: { ...cl, checks: newChecks } },
+    }));
     const { error } = await supabase
       .from("checklist_submissions")
       .upsert(
         { user_id: viewUserId, month_key: selectedMonth, checks: newChecks, remarks: cl.remarks || "" },
         { onConflict: "user_id,month_key" }
       );
-    if (!error) {
+    if (error) {
+      // Revert on DB failure
       setChecklists(prev => ({
         ...prev,
-        [viewUserId]: { ...(prev[viewUserId] || {}), [selectedMonth]: { ...cl, checks: newChecks } },
+        [viewUserId]: { ...(prev[viewUserId] || {}), [selectedMonth]: cl },
       }));
+      console.error("[toggle] Supabase error:", error);
     }
   }
 
@@ -838,16 +995,17 @@ function ChecklistPage({ currentUser, users, checklists, setChecklists, isAdmin 
     }));
   }
 
-  // Build month options (last 6 months)
+  // Build month options (12 for admin, 6 for staff)
   const monthOptions = [];
-  for (let i = 0; i < 6; i++) {
+  const maxMonths = isAdmin ? 12 : 6;
+  for (let i = 0; i < maxMonths; i++) {
     const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
     const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
     monthOptions.push({ key, label: `${MONTHS[d.getMonth()]} ${d.getFullYear()}` });
   }
 
   const score = scoreOf(cl.checks);
-  const staffList = users.filter(u => u.role === "staff");
+  const staffList = users.filter(u => u.role !== "admin");
 
   return (
     <div>
@@ -872,6 +1030,7 @@ function ChecklistPage({ currentUser, users, checklists, setChecklists, isAdmin 
                 {monthOptions.map(m => <option key={m.key} value={m.key}>{m.label}</option>)}
               </select>
               {!canEdit && <span style={{ fontSize: 12, color: "#9a8a7a", alignSelf: "center" }}>👁 View only</span>}
+              {isAdmin && viewUserId !== currentUser.id && <span style={{ fontSize: 12, background: "#fde8d8", color: "#c4704a", padding: "3px 8px", borderRadius: 6, fontWeight: 600, alignSelf: "center" }}>Admin editing</span>}
             </div>
 
             {CHECKLIST_SECTIONS.map(section => (
@@ -896,7 +1055,7 @@ function ChecklistPage({ currentUser, users, checklists, setChecklists, isAdmin 
                 value={localRemarks}
                 onChange={e => setLocalRemarks(e.target.value)}
                 onBlur={saveRemarks}
-                disabled={!canEdit}
+                readOnly={!canEdit}
                 rows={3}
                 placeholder={canEdit ? "Add your self-assessment remarks here..." : "No remarks added."}
                 style={{ ...inputStyle, resize: "vertical", width: "100%", boxSizing: "border-box" }}
@@ -982,17 +1141,34 @@ function ChecklistPage({ currentUser, users, checklists, setChecklists, isAdmin 
 
 // ── SALES PAGE ────────────────────────────────────────────────────────────────
 
+const MONTH_ORDER = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+
 function SalesPage({ sales, setSales, isAdmin }) {
   const [editing, setEditing] = useState(null);
   const [editVals, setEditVals] = useState({});
 
-  function startEdit(idx) {
-    setEditing(idx);
-    setEditVals({ target: sales[idx].target, achieved: sales[idx].achieved });
+  // Pick the right year: prefer current year, fall back to the latest year in data
+  const currentYear = new Date().getFullYear();
+  const yearsInData = [...new Set(sales.map(s => s.year))].sort((a, b) => b - a);
+  const displayYear = yearsInData.includes(currentYear) ? currentYear : (yearsInData[0] ?? currentYear);
+  const yearSales = sales.filter(s => s.year === displayYear);
+
+  // Deduplicate: keep first occurrence of each month, then sort by canonical order
+  const seen = new Set();
+  const dedupedSales = yearSales
+    .filter(s => { if (seen.has(s.month)) return false; seen.add(s.month); return true; })
+    .sort((a, b) => MONTH_ORDER.indexOf(a.month) - MONTH_ORDER.indexOf(b.month));
+
+  console.log("SalesPage year:", displayYear, "rows:", dedupedSales.length, dedupedSales.map(s => s.month));
+
+  function startEdit(month) {
+    const idx = dedupedSales.findIndex(s => s.month === month);
+    setEditing(month);
+    setEditVals({ target: dedupedSales[idx].target, achieved: dedupedSales[idx].achieved });
   }
 
-  async function saveEdit(idx) {
-    const s = sales[idx];
+  async function saveEdit(month) {
+    const s = dedupedSales.find(r => r.month === month);
     const newTarget = Number(editVals.target);
     const newAchieved = Number(editVals.achieved);
     const { error } = await supabase
@@ -1000,12 +1176,13 @@ function SalesPage({ sales, setSales, isAdmin }) {
       .update({ target: newTarget, achieved: newAchieved })
       .eq("id", s.id);
     if (!error) {
-      setSales(prev => prev.map((row, i) => i !== idx ? row : { ...row, target: newTarget, achieved: newAchieved }));
+      setSales(prev => prev.map(row => row.id !== s.id ? row : { ...row, target: newTarget, achieved: newAchieved }));
     }
     setEditing(null);
   }
 
-  const maxVal = Math.max(...sales.map(s => Math.max(s.target, s.achieved)), 1);
+  const maxVal = Math.max(...dedupedSales.map(s => Math.max(s.target, s.achieved)), 1);
+  const BAR_HEIGHT = 100;
 
   return (
     <div>
@@ -1013,48 +1190,52 @@ function SalesPage({ sales, setSales, isAdmin }) {
       <p style={{ color: "#9a8a7a", fontSize: 13, marginBottom: 24 }}>Monthly team sales performance. {isAdmin ? "Click a row to edit targets and achieved scores." : "View-only."}</p>
 
       {/* Chart */}
-      <div style={{ background: "#fff", borderRadius: 16, padding: "24px", boxShadow: "0 2px 12px rgba(0,0,0,0.06)", marginBottom: 24 }}>
-        <div style={{ fontSize: 13, fontWeight: 700, color: "#9a8a7a", marginBottom: 16 }}>Visual Overview</div>
-        <div className="sales-chart" style={{ width: "100%", overflow: "hidden" }}>
-        <div className="sales-chart-inner" style={{ display: "flex", alignItems: "flex-end", gap: 4, height: 160, width: "100%", overflow: "hidden" }}>
-          {sales.map((s, i) => {
-            const tH = Math.round((s.target / maxVal) * 140);
-            const aH = s.achieved > 0 ? Math.round((s.achieved / maxVal) * 140) : 0;
+      <div style={{ background: "#fff", borderRadius: 16, padding: "20px 16px 16px", boxShadow: "0 2px 12px rgba(0,0,0,0.06)", marginBottom: 24 }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: "#9a8a7a", marginBottom: 12 }}>Visual Overview</div>
+        <div style={{ display: "flex", alignItems: "flex-end", gap: 2, height: BAR_HEIGHT + 28, width: "100%" }}>
+          {dedupedSales.map(s => {
+            const tH = Math.max(2, Math.round((s.target / maxVal) * BAR_HEIGHT));
+            const aH = s.achieved > 0 ? Math.max(2, Math.round((s.achieved / maxVal) * BAR_HEIGHT)) : 0;
             const hit = s.achieved >= s.target && s.achieved > 0;
             return (
-              <div key={i} style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
-                <div style={{ display: "flex", alignItems: "flex-end", gap: 2, height: 140, width: "100%" }}>
-                  <div title={`Target: RM${s.target.toLocaleString()}`} style={{ flex: 1, minWidth: 0, height: tH, background: "#e8ddd5", borderRadius: "4px 4px 0 0" }} />
-                  <div title={`Achieved: RM${s.achieved.toLocaleString()}`} style={{ flex: 1, minWidth: 0, height: aH, background: hit ? "#2ecc71" : aH > 0 ? "#c4704a" : "#f0ebe4", borderRadius: "4px 4px 0 0", transition: "height 0.4s" }} />
+              <div key={s.month} style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", alignItems: "center" }}>
+                <div style={{ display: "flex", alignItems: "flex-end", gap: 1, height: BAR_HEIGHT, width: "100%" }}>
+                  <div
+                    title={`Target: RM${s.target.toLocaleString()}`}
+                    style={{ flex: 1, minWidth: 0, height: tH, background: "#d8cfc8", borderRadius: "3px 3px 0 0" }}
+                  />
+                  <div
+                    title={`Achieved: RM${s.achieved.toLocaleString()}`}
+                    style={{ flex: 1, minWidth: 0, height: aH, background: hit ? "#2ecc71" : aH > 0 ? "#c4704a" : "transparent", borderRadius: "3px 3px 0 0" }}
+                  />
                 </div>
-                <div style={{ fontSize: 10, color: "#9a8a7a", fontWeight: 600, whiteSpace: "nowrap" }}>{s.month}</div>
+                <div style={{ fontSize: 9, color: "#9a8a7a", fontWeight: 600, marginTop: 4, textAlign: "center", lineHeight: 1 }}>{s.month}</div>
               </div>
             );
           })}
         </div>
-        <div style={{ display: "flex", gap: 16, marginTop: 8, fontSize: 12, color: "#9a8a7a" }}>
-          <span>▪ <span style={{ background: "#e8ddd5", padding: "1px 6px", borderRadius: 4 }}>Target</span></span>
-          <span>▪ <span style={{ background: "#c4704a", padding: "1px 6px", borderRadius: 4, color:"#fff" }}>Achieved</span></span>
-          <span>▪ <span style={{ background: "#2ecc71", padding: "1px 6px", borderRadius: 4, color:"#fff" }}>Hit Target ✓</span></span>
-        </div>
+        <div style={{ display: "flex", gap: 16, marginTop: 10, fontSize: 12, color: "#9a8a7a" }}>
+          <span style={{ display: "flex", alignItems: "center", gap: 4 }}><span style={{ display: "inline-block", width: 10, height: 10, background: "#d8cfc8", borderRadius: 2 }} /> Target</span>
+          <span style={{ display: "flex", alignItems: "center", gap: 4 }}><span style={{ display: "inline-block", width: 10, height: 10, background: "#c4704a", borderRadius: 2 }} /> Achieved</span>
+          <span style={{ display: "flex", alignItems: "center", gap: 4 }}><span style={{ display: "inline-block", width: 10, height: 10, background: "#2ecc71", borderRadius: 2 }} /> Hit Target</span>
         </div>
       </div>
 
       {/* Table */}
       <div style={{ background: "#fff", borderRadius: 16, padding: "24px", boxShadow: "0 2px 12px rgba(0,0,0,0.06)" }}>
-        {sales.map((s, i) => {
+        {dedupedSales.map(s => {
           const achieved_pct = s.target > 0 && s.achieved > 0 ? Math.round((s.achieved / s.target) * 100) : 0;
           const hit = s.achieved >= s.target && s.achieved > 0;
           return (
-            <div key={i} style={{ display: "flex", alignItems: "center", gap: 16, padding: "14px 0", borderBottom: "1px solid #f8f5f2" }}>
+            <div key={s.month} style={{ display: "flex", alignItems: "center", gap: 16, padding: "14px 0", borderBottom: "1px solid #f8f5f2" }}>
               <div style={{ width: 40, fontSize: 14, fontWeight: 700, color: "#5a4a3a" }}>{s.month}</div>
-              {editing === i && isAdmin ? (
+              {editing === s.month && isAdmin ? (
                 <>
                   <div style={{ flex: 1, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                     <div><label style={{ fontSize: 11, color: "#9a8a7a" }}>Target (RM)</label><input type="number" value={editVals.target} onChange={e => setEditVals({...editVals, target: e.target.value})} style={{ ...inputStyle, padding: "6px 10px" }} /></div>
                     <div><label style={{ fontSize: 11, color: "#9a8a7a" }}>Achieved (RM)</label><input type="number" value={editVals.achieved} onChange={e => setEditVals({...editVals, achieved: e.target.value})} style={{ ...inputStyle, padding: "6px 10px" }} /></div>
                   </div>
-                  <button onClick={() => saveEdit(i)} style={{ background: "#c4704a", color: "#fff", border: "none", borderRadius: 8, padding: "7px 14px", cursor: "pointer", fontSize: 13 }}>Save</button>
+                  <button onClick={() => saveEdit(s.month)} style={{ background: "#c4704a", color: "#fff", border: "none", borderRadius: 8, padding: "7px 14px", cursor: "pointer", fontSize: 13 }}>Save</button>
                   <button onClick={() => setEditing(null)} style={{ background: "#f0ebe4", color: "#7a6a5a", border: "none", borderRadius: 8, padding: "7px 14px", cursor: "pointer", fontSize: 13 }}>Cancel</button>
                 </>
               ) : (
@@ -1067,7 +1248,7 @@ function SalesPage({ sales, setSales, isAdmin }) {
                     </div>
                     <Bar value={s.achieved} max={s.target} color={hit ? "#2ecc71" : "#c4704a"} />
                   </div>
-                  {isAdmin && <button onClick={() => startEdit(i)} style={{ background: "#faf7f3", color: "#7a6a5a", border: "1px solid #e8ddd5", borderRadius: 8, padding: "6px 12px", cursor: "pointer", fontSize: 12 }}>✏️ Edit</button>}
+                  {isAdmin && <button onClick={() => startEdit(s.month)} style={{ background: "#faf7f3", color: "#7a6a5a", border: "1px solid #e8ddd5", borderRadius: 8, padding: "6px 12px", cursor: "pointer", fontSize: 12 }}>✏️ Edit</button>}
                 </>
               )}
             </div>
@@ -1130,10 +1311,77 @@ function DocsPage({ docModal, setDocModal }) {
 
 // ── ADMIN PAGE ────────────────────────────────────────────────────────────────
 
-function AdminPage({ users, leaveRequests, checklists }) {
-  const staffList = users.filter(u => u.role === "staff");
+function AdminPage({ users, setUsers, leaveRequests, setLeaveRequests, checklists }) {
+  const staffList = users.filter(u => u.role !== "admin");
   const now = new Date();
   const monthKey = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}`;
+
+  // User management
+  const [userModal, setUserModal] = useState(null); // null | "add" | userId
+  const [userForm, setUserForm] = useState({ name: "", email: "", password: "", role: "staff", title: "" });
+  const [userMsg, setUserMsg] = useState("");
+
+  function genAvatar(name) {
+    return name.trim().split(/\s+/).map(w => w[0] || "").join("").substring(0, 2).toUpperCase() || "?";
+  }
+
+  function openAddUser() {
+    setUserForm({ name: "", email: "", password: "", role: "staff", title: "" });
+    setUserMsg("");
+    setUserModal("add");
+  }
+
+  function openEditUser(u) {
+    setUserForm({ name: u.name, email: u.email, password: u.password || "", role: u.role, title: u.title || "" });
+    setUserMsg("");
+    setUserModal(u.id);
+  }
+
+  async function handleSaveUser() {
+    if (!userForm.name.trim() || !userForm.email.trim() || !userForm.password.trim() || !userForm.title.trim()) {
+      setUserMsg("Please fill in all fields."); return;
+    }
+    const avatar = genAvatar(userForm.name);
+
+    if (userModal === "add") {
+      const { data, error } = await supabase.from("users").insert({
+        name: userForm.name.trim(),
+        email: userForm.email.trim().toLowerCase(),
+        password: userForm.password,
+        role: userForm.role,
+        job_title: userForm.title.trim(),
+        avatar,
+        annual_left: 12,
+      }).select().single();
+      if (error) { setUserMsg("❌ Failed: " + (error.message || "unknown error")); return; }
+      setUsers(prev => [...prev, mapUser(data)]);
+      setUserMsg("✅ User added!");
+      setTimeout(() => setUserModal(null), 800);
+    } else {
+      const { error } = await supabase.from("users").update({
+        name: userForm.name.trim(),
+        email: userForm.email.trim().toLowerCase(),
+        password: userForm.password,
+        role: userForm.role,
+        job_title: userForm.title.trim(),
+        avatar,
+      }).eq("id", userModal);
+      if (error) { setUserMsg("❌ Failed: " + (error.message || "unknown error")); return; }
+      setUsers(prev => prev.map(u => u.id !== userModal ? u : {
+        ...u, name: userForm.name.trim(), email: userForm.email.trim().toLowerCase(),
+        password: userForm.password, role: userForm.role, title: userForm.title.trim(), avatar,
+      }));
+      setUserMsg("✅ Updated!");
+      setTimeout(() => setUserModal(null), 800);
+    }
+  }
+
+  async function handleDeleteUser(uid) {
+    if (!window.confirm("Delete this user? This cannot be undone.")) return;
+    const { error } = await supabase.from("users").delete().eq("id", uid);
+    if (error) { alert("Failed to delete user."); return; }
+    setUsers(prev => prev.filter(u => u.id !== uid));
+  }
 
   return (
     <div>
@@ -1156,42 +1404,106 @@ function AdminPage({ users, leaveRequests, checklists }) {
       </div>
 
       <div style={{ background: "#fff", borderRadius: 16, padding: "24px", boxShadow: "0 2px 12px rgba(0,0,0,0.06)" }}>
-        <div style={{ fontWeight: 700, color: "#3a2a1a", fontSize: 15, marginBottom: 18 }}>Staff Leave Balances</div>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
+          <div style={{ fontWeight: 700, color: "#3a2a1a", fontSize: 15 }}>Staff Management</div>
+          <button onClick={openAddUser} style={{ background: "#c4704a", color: "#fff", border: "none", borderRadius: 8, padding: "8px 18px", cursor: "pointer", fontSize: 13, fontWeight: 700 }}>+ Add User</button>
+        </div>
         <div className="table-scroll">
-        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-          <thead>
-            <tr>
-              {["Staff Member", "Title", "Annual Left", "Checklist Status"].map(h => (
-                <th key={h} style={{ textAlign: "left", padding: "8px 12px", color: "#9a8a7a", fontWeight: 700, borderBottom: "2px solid #f0ebe4" }}>{h}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {users.filter(u => u.role !== "admin").map(u => {
-              const cl = checklists[u.id]?.[monthKey];
-              const score = cl ? pct(cl.checks) : null;
-              return (
-                <tr key={u.id} style={{ borderBottom: "1px solid #f8f5f2" }}>
-                  <td style={{ padding: "12px 12px" }}>
-                    <div style={{ display:"flex", alignItems:"center", gap:8 }}>
-                      <div style={{ width:28, height:28, borderRadius:"50%", background:"#c4704a", color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontSize:11, fontWeight:700 }}>{u.avatar}</div>
-                      <span style={{ fontWeight:600, color:"#3a2a1a" }}>{u.name}</span>
-                    </div>
-                  </td>
-                  <td style={{ padding: "12px", color:"#7a6a5a" }}>{u.title}</td>
-                  <td style={{ padding: "12px" }}><span style={{ fontWeight:700, color: u.annualLeft<4?"#e74c3c":"#2ecc71" }}>{u.annualLeft}</span> / 12</td>
-                  <td style={{ padding: "12px" }}>
-                    {score !== null
-                      ? <span style={{ background: score>=80?"#eafaf1":score>=60?"#fff4e0":"#fdf0f0", color:score>=80?"#27ae60":score>=60?"#f39c12":"#e74c3c", fontWeight:700, fontSize:12, padding:"3px 10px", borderRadius:99 }}>{score}%</span>
-                      : <span style={{ color:"#c0b5ae", fontSize:12 }}>Not submitted</span>}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+            <thead>
+              <tr>
+                {["Staff Member", "Role", "Title", "Annual Left", "Checklist", "Actions"].map(h => (
+                  <th key={h} style={{ textAlign: "left", padding: "8px 12px", color: "#9a8a7a", fontWeight: 700, borderBottom: "2px solid #f0ebe4" }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {users.filter(u => u.role !== "admin").map(u => {
+                const cl = checklists[u.id]?.[monthKey];
+                const score = cl ? pct(cl.checks) : null;
+                return (
+                  <tr key={u.id} style={{ borderBottom: "1px solid #f8f5f2" }}>
+                    <td style={{ padding: "12px 12px" }}>
+                      <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                        <div style={{ width:28, height:28, borderRadius:"50%", background:"#c4704a", color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontSize:11, fontWeight:700 }}>{u.avatar}</div>
+                        <span style={{ fontWeight:600, color:"#3a2a1a" }}>{u.name}</span>
+                      </div>
+                    </td>
+                    <td style={{ padding: "12px", color:"#7a6a5a", textTransform: "capitalize" }}>{u.role}</td>
+                    <td style={{ padding: "12px", color:"#7a6a5a" }}>{u.title}</td>
+                    <td style={{ padding: "12px" }}><span style={{ fontWeight:700, color: u.annualLeft<4?"#e74c3c":"#2ecc71" }}>{u.annualLeft}</span> / 12</td>
+                    <td style={{ padding: "12px" }}>
+                      {score !== null
+                        ? <span style={{ background: score>=80?"#eafaf1":score>=60?"#fff4e0":"#fdf0f0", color:score>=80?"#27ae60":score>=60?"#f39c12":"#e74c3c", fontWeight:700, fontSize:12, padding:"3px 10px", borderRadius:99 }}>{score}%</span>
+                        : <span style={{ color:"#c0b5ae", fontSize:12 }}>—</span>}
+                    </td>
+                    <td style={{ padding: "12px" }}>
+                      <div style={{ display: "flex", gap: 6 }}>
+                        <button onClick={() => openEditUser(u)} style={{ background: "#f0ebe4", color: "#7a6a5a", border: "none", borderRadius: 7, padding: "5px 12px", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>✏️ Edit</button>
+                        <button onClick={() => handleDeleteUser(u.id)} style={{ background: "#fdf0f0", color: "#e74c3c", border: "none", borderRadius: 7, padding: "5px 10px", cursor: "pointer", fontSize: 12 }}>🗑</button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
       </div>
+
+      {/* Add/Edit User Modal */}
+      {userModal && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 16 }}>
+          <div style={{ background: "#fff", borderRadius: 20, padding: "32px 28px", width: 440, maxWidth: "100%", boxShadow: "0 8px 40px rgba(0,0,0,0.2)", maxHeight: "90vh", overflowY: "auto" }}>
+            <div style={{ fontWeight: 700, fontSize: 17, color: "#3a2a1a", marginBottom: 20 }}>
+              {userModal === "add" ? "Add New User" : "Edit User"}
+            </div>
+            <div style={{ display: "grid", gap: 14 }}>
+              <div>
+                <label style={labelStyle}>Full Name</label>
+                <input value={userForm.name} onChange={e => setUserForm({...userForm, name: e.target.value})} placeholder="First Last" style={inputStyle} />
+              </div>
+              {userForm.name.trim() && (
+                <div style={{ fontSize: 12, color: "#9a8a7a", marginTop: -8 }}>
+                  Avatar: <span style={{ display:"inline-flex", width:22, height:22, borderRadius:"50%", background:"#c4704a", color:"#fff", alignItems:"center", justifyContent:"center", fontSize:10, fontWeight:700, marginLeft:4 }}>{genAvatar(userForm.name)}</span>
+                </div>
+              )}
+              <div>
+                <label style={labelStyle}>Email</label>
+                <input type="email" value={userForm.email} onChange={e => setUserForm({...userForm, email: e.target.value})} placeholder="name@saltycustoms.com" style={inputStyle} />
+              </div>
+              <div>
+                <label style={labelStyle}>Password</label>
+                <input value={userForm.password} onChange={e => setUserForm({...userForm, password: e.target.value})} placeholder="Set a password" style={inputStyle} />
+              </div>
+              <div>
+                <label style={labelStyle}>Role</label>
+                <select value={userForm.role} onChange={e => setUserForm({...userForm, role: e.target.value})} style={inputStyle}>
+                  <option value="staff">Staff</option>
+                  <option value="supervisor">Supervisor</option>
+                  <option value="admin">Admin</option>
+                </select>
+              </div>
+              <div>
+                <label style={labelStyle}>Job Title</label>
+                <input value={userForm.title} onChange={e => setUserForm({...userForm, title: e.target.value})} placeholder="e.g. Sales Executive" style={inputStyle} />
+              </div>
+              {userModal === "add" && (
+                <div style={{ fontSize: 12, color: "#9a8a7a", background: "#faf7f3", borderRadius: 8, padding: "8px 12px" }}>
+                  Annual leave will default to <strong>12 days</strong>.
+                </div>
+              )}
+              {userMsg && <div style={{ color: userMsg.startsWith("✅") ? "#2ecc71" : "#e74c3c", fontSize: 13, fontWeight: 600 }}>{userMsg}</div>}
+              <div style={{ display: "flex", gap: 10, marginTop: 4 }}>
+                <button onClick={handleSaveUser} style={{ flex: 1, background: "#c4704a", color: "#fff", border: "none", borderRadius: 10, padding: "12px", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>
+                  {userModal === "add" ? "Add User" : "Save Changes"}
+                </button>
+                <button onClick={() => setUserModal(null)} style={{ background: "#f0ebe4", color: "#7a6a5a", border: "none", borderRadius: 10, padding: "12px 18px", fontSize: 14, cursor: "pointer" }}>Cancel</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
