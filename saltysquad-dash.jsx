@@ -165,7 +165,7 @@ export default function App() {
       const [usersRes, leaveRes, salesRes, checklistRes] = await Promise.all([
         supabase.from("users").select("*"),
         supabase.from("leave_requests").select("*"),
-        supabase.from("sales_targets").select("*").order("id"),
+        supabase.from("sales_targets").select("*").eq("year", new Date().getFullYear()).order("id"),
         supabase.from("checklist_submissions").select("*"),
       ]);
       if (cancelled) return;
@@ -1015,19 +1015,19 @@ function SalesPage({ sales, setSales, isAdmin }) {
       {/* Chart */}
       <div style={{ background: "#fff", borderRadius: 16, padding: "24px", boxShadow: "0 2px 12px rgba(0,0,0,0.06)", marginBottom: 24 }}>
         <div style={{ fontSize: 13, fontWeight: 700, color: "#9a8a7a", marginBottom: 16 }}>Visual Overview</div>
-        <div className="sales-chart">
-        <div className="sales-chart-inner" style={{ display: "flex", alignItems: "flex-end", gap: 16, height: 160 }}>
+        <div className="sales-chart" style={{ width: "100%", overflow: "hidden" }}>
+        <div className="sales-chart-inner" style={{ display: "flex", alignItems: "flex-end", gap: 4, height: 160, width: "100%", overflow: "hidden" }}>
           {sales.map((s, i) => {
             const tH = Math.round((s.target / maxVal) * 140);
             const aH = s.achieved > 0 ? Math.round((s.achieved / maxVal) * 140) : 0;
             const hit = s.achieved >= s.target && s.achieved > 0;
             return (
-              <div key={i} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
-                <div style={{ display: "flex", alignItems: "flex-end", gap: 3, height: 140 }}>
-                  <div title={`Target: RM${s.target.toLocaleString()}`} style={{ width: 18, height: tH, background: "#e8ddd5", borderRadius: "4px 4px 0 0" }} />
-                  <div title={`Achieved: RM${s.achieved.toLocaleString()}`} style={{ width: 18, height: aH, background: hit ? "#2ecc71" : aH > 0 ? "#c4704a" : "#f0ebe4", borderRadius: "4px 4px 0 0", transition: "height 0.4s" }} />
+              <div key={i} style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
+                <div style={{ display: "flex", alignItems: "flex-end", gap: 2, height: 140, width: "100%" }}>
+                  <div title={`Target: RM${s.target.toLocaleString()}`} style={{ flex: 1, minWidth: 0, height: tH, background: "#e8ddd5", borderRadius: "4px 4px 0 0" }} />
+                  <div title={`Achieved: RM${s.achieved.toLocaleString()}`} style={{ flex: 1, minWidth: 0, height: aH, background: hit ? "#2ecc71" : aH > 0 ? "#c4704a" : "#f0ebe4", borderRadius: "4px 4px 0 0", transition: "height 0.4s" }} />
                 </div>
-                <div style={{ fontSize: 11, color: "#9a8a7a", fontWeight: 600 }}>{s.month}</div>
+                <div style={{ fontSize: 10, color: "#9a8a7a", fontWeight: 600, whiteSpace: "nowrap" }}>{s.month}</div>
               </div>
             );
           })}
