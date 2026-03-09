@@ -203,30 +203,66 @@ function Login({ users, onLogin }) {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
 
-  function handleLogin() {
-    const u = users.find(u => u.email === email && u.password === password);
+  function handleLogin(e) {
+    if (e) e.preventDefault();
+    console.log("[Saltysquad] Login attempt:", email);
+    const trimmedEmail = email.trim().toLowerCase();
+    const u = users.find(u => u.email.toLowerCase() === trimmedEmail && u.password === password);
     if (u) { setError(""); onLogin(u); }
     else setError("Invalid email or password. Try again.");
   }
 
+  const inputStyle = {
+    width: "100%", marginTop: 6, padding: "10px 14px",
+    border: "1.5px solid #e8ddd5", borderRadius: 10,
+    fontSize: 16, /* 16px prevents iOS Safari zoom on focus */
+    outline: "none", boxSizing: "border-box", fontFamily: "inherit",
+    WebkitAppearance: "none", appearance: "none",
+    touchAction: "manipulation",
+  };
+
   return (
-    <div style={{ minHeight: "100vh", background: "linear-gradient(135deg, #faf7f3 0%, #fde8d8 100%)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'Georgia', serif" }}>
+    <div style={{ minHeight: "100vh", background: "linear-gradient(135deg, #faf7f3 0%, #fde8d8 100%)", display: "-webkit-box", WebkitBoxOrient: "vertical", WebkitBoxAlign: "center", WebkitBoxPack: "center", flexDirection: "column", alignItems: "center", justifyContent: "center", display: "flex", fontFamily: "'Georgia', serif" }}>
       <div className="login-card" style={{ background: "#fff", borderRadius: 20, padding: "48px 44px", width: 380, boxShadow: "0 8px 40px rgba(196,112,74,0.12)" }}>
         <div style={{ textAlign: "center", marginBottom: 32 }}>
           <div style={{ fontSize: 36, marginBottom: 8 }}>🌊</div>
           <div style={{ fontSize: 26, fontWeight: 800, color: "#c4704a" }}>SALTYSQUAD</div>
           <div style={{ fontSize: 13, color: "#9a8a7a", marginTop: 4 }}>Team Dashboard · Sign In</div>
         </div>
-        <div style={{ marginBottom: 16 }}>
-          <label style={{ fontSize: 12, fontWeight: 700, color: "#7a6a5a", textTransform: "uppercase", letterSpacing: 0.5 }}>Email</label>
-          <input value={email} onChange={e => setEmail(e.target.value)} onKeyDown={e => e.key === "Enter" && handleLogin()} placeholder="you@saltysquad.com" style={{ width: "100%", marginTop: 6, padding: "10px 14px", border: "1.5px solid #e8ddd5", borderRadius: 10, fontSize: 14, outline: "none", boxSizing: "border-box", fontFamily: "inherit" }} />
-        </div>
-        <div style={{ marginBottom: 8 }}>
-          <label style={{ fontSize: 12, fontWeight: 700, color: "#7a6a5a", textTransform: "uppercase", letterSpacing: 0.5 }}>Password</label>
-          <input value={password} onChange={e => setPassword(e.target.value)} onKeyDown={e => e.key === "Enter" && handleLogin()} type="password" placeholder="••••••••" style={{ width: "100%", marginTop: 6, padding: "10px 14px", border: "1.5px solid #e8ddd5", borderRadius: 10, fontSize: 14, outline: "none", boxSizing: "border-box", fontFamily: "inherit" }} />
-        </div>
-        {error && <div style={{ color: "#e74c3c", fontSize: 13, marginBottom: 8 }}>{error}</div>}
-        <button onClick={handleLogin} style={{ width: "100%", background: "#c4704a", color: "#fff", border: "none", borderRadius: 10, padding: "12px", fontSize: 15, fontWeight: 700, cursor: "pointer", marginTop: 16, transition: "background 0.15s" }}>Sign In →</button>
+        <form onSubmit={handleLogin} noValidate>
+          <div style={{ marginBottom: 16 }}>
+            <label style={{ fontSize: 12, fontWeight: 700, color: "#7a6a5a", textTransform: "uppercase", letterSpacing: 0.5 }}>Email</label>
+            <input
+              type="email"
+              value={email}
+              onChange={e => setEmail(e.target.value)}
+              placeholder="you@saltycustoms.com"
+              autoCapitalize="none"
+              autoCorrect="off"
+              autoComplete="email"
+              spellCheck="false"
+              style={inputStyle}
+            />
+          </div>
+          <div style={{ marginBottom: 8 }}>
+            <label style={{ fontSize: 12, fontWeight: 700, color: "#7a6a5a", textTransform: "uppercase", letterSpacing: 0.5 }}>Password</label>
+            <input
+              type="password"
+              value={password}
+              onChange={e => setPassword(e.target.value)}
+              placeholder="••••••••"
+              autoComplete="current-password"
+              style={inputStyle}
+            />
+          </div>
+          {error && <div style={{ color: "#e74c3c", fontSize: 13, marginBottom: 8 }}>{error}</div>}
+          <button
+            type="submit"
+            style={{ width: "100%", background: "#c4704a", color: "#fff", border: "none", borderRadius: 10, padding: "12px", fontSize: 15, fontWeight: 700, cursor: "pointer", marginTop: 16, transition: "background 0.15s", touchAction: "manipulation", WebkitAppearance: "none", appearance: "none", minHeight: 48 }}
+          >
+            Sign In →
+          </button>
+        </form>
         <div style={{ marginTop: 20, background: "#faf7f3", borderRadius: 10, padding: "12px 14px", fontSize: 12, color: "#9a8a7a" }}>
           <strong style={{ color: "#7a6a5a" }}>Login with your company email</strong><br />
           Admin: king@saltycustoms.com<br />
