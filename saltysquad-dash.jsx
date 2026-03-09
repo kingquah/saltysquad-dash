@@ -136,7 +136,7 @@ function Bar({ value, max, color }) {
 
 function LoadingScreen() {
   return (
-    <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#faf7f3", fontFamily: "'Georgia', serif" }}>
+    <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#faf7f3", fontFamily: '-apple-system, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Arial, sans-serif' }}>
       <style>{`@keyframes ss-spin { to { transform: rotate(360deg); } }`}</style>
       <div style={{ textAlign: "center" }}>
         <div style={{ width: 44, height: 44, borderRadius: "50%", border: "4px solid #fde8d8", borderTopColor: "#c4704a", animation: "ss-spin 0.7s linear infinite", margin: "0 auto 16px" }} />
@@ -235,7 +235,7 @@ export default function App() {
   ];
 
   return (
-    <div style={{ fontFamily: "'Georgia', serif", background: "#faf7f3", minHeight: "100vh", display: "flex", flexDirection: "column" }}>
+    <div style={{ fontFamily: '-apple-system, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Arial, sans-serif', background: "#faf7f3", minHeight: "100vh", display: "flex", flexDirection: "column" }}>
       {/* TOP NAV */}
       <header className="top-header" style={{ background: "#fff", borderBottom: "2px solid #f0ebe4", padding: "0 24px", display: "flex", alignItems: "center", justifyContent: "space-between", height: 60, position: "sticky", top: 0, zIndex: 100 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -309,7 +309,7 @@ function Login({ users, onLogin }) {
   };
 
   return (
-    <div style={{ minHeight: "100vh", background: "linear-gradient(135deg, #faf7f3 0%, #fde8d8 100%)", display: "-webkit-box", WebkitBoxOrient: "vertical", WebkitBoxAlign: "center", WebkitBoxPack: "center", flexDirection: "column", alignItems: "center", justifyContent: "center", display: "flex", fontFamily: "'Georgia', serif" }}>
+    <div style={{ minHeight: "100vh", background: "linear-gradient(135deg, #faf7f3 0%, #fde8d8 100%)", display: "-webkit-box", WebkitBoxOrient: "vertical", WebkitBoxAlign: "center", WebkitBoxPack: "center", flexDirection: "column", alignItems: "center", justifyContent: "center", display: "flex", fontFamily: '-apple-system, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Arial, sans-serif' }}>
       <div className="login-card" style={{ background: "#fff", borderRadius: 20, padding: "48px 44px", width: 380, boxShadow: "0 8px 40px rgba(196,112,74,0.12)" }}>
         <div style={{ textAlign: "center", marginBottom: 32 }}>
           <div style={{ fontSize: 36, marginBottom: 8 }}>🌊</div>
@@ -363,16 +363,68 @@ function Login({ users, onLogin }) {
 
 // ── DASHBOARD PAGE ────────────────────────────────────────────────────────────
 
+const SF_PRO = '-apple-system, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Arial, sans-serif';
+
 function DashboardPage({ currentUser, users, leaveRequests, checklists, sales, isAdmin, setPage, onLeaveAction }) {
   const now = new Date();
-  const monthKey = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}`;
+  const currentYear = now.getFullYear();
+  const currentMonthIdx = now.getMonth();
+  const currentMonthName = MONTHS[currentMonthIdx];
+  const monthKey = `${currentYear}-${String(currentMonthIdx + 1).padStart(2, "0")}`;
   const myChecklist = checklists[currentUser.id]?.[monthKey];
   const myScore = myChecklist ? pct(myChecklist.checks) : null;
-  const latestSales = sales.filter(s => s.achieved > 0).slice(-1)[0];
   const pendingLeave = leaveRequests.filter(l => l.status === "Pending" && (isAdmin || l.userId === currentUser.id));
   const staffList = users.filter(u => u.role === "staff");
 
-  const Card = ({ title, children, accent, onClick }) => (
+  // ── Sales calculations ──
+  const currentSales = sales.find(s => s.month === currentMonthName && s.year === currentYear);
+  const monthTarget = currentSales?.target || 500000;
+  const currentAchieved = currentSales?.achieved || 0;
+  const currentRemaining = Math.max(0, monthTarget - currentAchieved);
+  const currentPct = monthTarget > 0 ? Math.min(Math.round((currentAchieved / monthTarget) * 100), 100) : 0;
+  const hitTarget = currentAchieved >= monthTarget && currentAchieved > 0;
+  const salesColor = currentPct >= 90 ? "#27ae60" : currentPct >= 50 ? "#f39c12" : "#e74c3c";
+  const salesBg   = currentPct >= 90 ? "#eafaf1" : currentPct >= 50 ? "#fff8e6" : "#fdf0f0";
+
+  // ── Year-to-date ──
+  const ytdRows = sales.filter(s => {
+    const mIdx = MONTHS.indexOf(s.month);
+    return s.year === currentYear && mIdx <= currentMonthIdx;
+  });
+  const ytdTarget   = ytdRows.reduce((sum, s) => sum + s.target, 0);
+  const ytdAchieved = ytdRows.reduce((sum, s) => sum + s.achieved, 0);
+  const ytdPct      = ytdTarget > 0 ? Math.min(Math.round((ytdAchieved / ytdTarget) * 100), 100) : 0;
+  const ytdColor    = ytdPct >= 90 ? "#27ae60" : ytdPct >= 50 ? "#f39c12" : "#e74c3c";
+  const ytdHit      = ytdRows.filter(s => s.achieved >= s.target && s.achieved > 0).length;
+  const ytdMissed   = ytdRows.filter((s, i) => {
+    const mIdx = MONTHS.indexOf(s.month);
+    return mIdx < currentMonthIdx && s.achieved < s.target;
+  }).length;
+
+  // ── All 12 months for breakdown table ──
+  const allMonths = MONTHS.map((m, i) => {
+    const row     = sales.find(s => s.month === m && s.year === currentYear);
+    const isPast  = i < currentMonthIdx;
+    const isCurr  = i === currentMonthIdx;
+    const isFuture = i > currentMonthIdx;
+    const target   = row?.target || 500000;
+    const achieved = row?.achieved || 0;
+    const pctVal   = target > 0 && achieved > 0 ? Math.round((achieved / target) * 100) : 0;
+    const hit      = achieved >= target && achieved > 0;
+    let statusIcon, statusLabel, statusColor;
+    if (isFuture)     { statusIcon = "⏳"; statusLabel = "Upcoming";    statusColor = "#b0a09a"; }
+    else if (isCurr)  { statusIcon = "🔄"; statusLabel = "In Progress"; statusColor = "#3498db"; }
+    else if (hit)     { statusIcon = "✅"; statusLabel = "Hit";         statusColor = "#27ae60"; }
+    else              { statusIcon = "❌"; statusLabel = "Missed";      statusColor = "#e74c3c"; }
+    return { m, target, achieved, pctVal, hit, isPast, isCurr, isFuture, statusIcon, statusLabel, statusColor };
+  });
+
+  const totalTarget   = allMonths.reduce((sum, r) => sum + r.target, 0);
+  const totalAchieved = allMonths.reduce((sum, r) => sum + r.achieved, 0);
+  const totalPct      = totalTarget > 0 && totalAchieved > 0 ? Math.round((totalAchieved / totalTarget) * 100) : 0;
+  const totalColor    = totalPct >= 90 ? "#27ae60" : totalPct >= 50 ? "#f39c12" : "#e74c3c";
+
+  const SmallCard = ({ title, children, accent, onClick }) => (
     <div onClick={onClick} style={{ background: "#fff", borderRadius: 16, padding: "22px 24px", boxShadow: "0 2px 12px rgba(0,0,0,0.06)", borderLeft: `4px solid ${accent}`, cursor: onClick ? "pointer" : "default", transition: "transform 0.15s, box-shadow 0.15s" }}
       onMouseEnter={e => { if(onClick) { e.currentTarget.style.transform="translateY(-2px)"; e.currentTarget.style.boxShadow="0 6px 20px rgba(0,0,0,0.1)"; }}}
       onMouseLeave={e => { e.currentTarget.style.transform="none"; e.currentTarget.style.boxShadow="0 2px 12px rgba(0,0,0,0.06)"; }}>
@@ -383,39 +435,179 @@ function DashboardPage({ currentUser, users, leaveRequests, checklists, sales, i
 
   return (
     <div>
+      {/* Greeting */}
       <div style={{ marginBottom: 28 }}>
-        <h1 style={{ fontSize: 26, fontWeight: 700, color: "#3a2a1a", margin: 0 }}>Good {now.getHours()<12?"morning":now.getHours()<17?"afternoon":"evening"}, {currentUser.name.split(" ")[0]} 👋</h1>
-        <div style={{ color: "#9a8a7a", fontSize: 14, marginTop: 4 }}>{now.toLocaleDateString("en-GB", { weekday:"long", day:"numeric", month:"long", year:"numeric" })}</div>
+        <h1 style={{ fontSize: 26, fontWeight: 700, color: "#3a2a1a", margin: 0, fontFamily: SF_PRO }}>
+          Good {now.getHours() < 12 ? "morning" : now.getHours() < 17 ? "afternoon" : "evening"}, {currentUser.name.split(" ")[0]} 👋
+        </h1>
+        <div style={{ color: "#9a8a7a", fontSize: 14, marginTop: 4 }}>
+          {now.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
+        </div>
       </div>
 
-      <div className="cards-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 18, marginBottom: 28 }}>
-        <Card title="Annual Leave Left" accent="#c4704a" onClick={() => setPage("leave")}>
-          <div style={{ fontSize: 36, fontWeight: 800, color: "#c4704a" }}>{currentUser.annualLeft}<span style={{ fontSize: 16, color: "#9a8a7a", fontWeight: 400 }}> days</span></div>
-          <Bar value={currentUser.annualLeft} max={12} color="#c4704a" />
-        </Card>
-        <Card title={`Integrity Score — ${MONTHS[now.getMonth()]}`} accent="#7ab8a0" onClick={() => setPage("checklist")}>
-          {myScore !== null
-            ? <><div style={{ fontSize: 36, fontWeight: 800, color: "#7ab8a0" }}>{myScore}<span style={{ fontSize: 16 }}>%</span></div><Bar value={myScore} max={100} color="#7ab8a0" /></>
-            : <div style={{ fontSize: 14, color: "#9a8a7a" }}>Not submitted yet<br /><span style={{ color: "#c4704a", fontWeight: 600, fontSize: 13 }}>→ Complete checklist</span></div>}
-        </Card>
-        {latestSales && (
-          <Card title={`Team Sales — ${latestSales.month}`} accent="#a07ab8" onClick={() => setPage("sales")}>
-            <div style={{ fontSize: 36, fontWeight: 800, color: "#a07ab8" }}>
-              {Math.round((latestSales.achieved / latestSales.target) * 100)}<span style={{ fontSize: 16 }}>%</span>
+      {/* ══════════════════════════════════════════════════
+          HERO: SALES SECTION
+      ══════════════════════════════════════════════════ */}
+      <div style={{ marginBottom: 32 }}>
+
+        {/* A) Current Month Hero Card */}
+        <div style={{ background: "#fff", borderRadius: 20, padding: "28px 32px", boxShadow: "0 4px 24px rgba(0,0,0,0.08)", marginBottom: 16, border: `2px solid ${salesColor}30`, position: "relative", overflow: "hidden" }}>
+          {/* Subtle tinted accent strip */}
+          <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 4, background: salesColor, borderRadius: "20px 20px 0 0" }} />
+
+          <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", flexWrap: "wrap", gap: 20, marginBottom: 24 }}>
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "#9a8a7a", textTransform: "uppercase", letterSpacing: 1, marginBottom: 6 }}>
+                Sales Performance
+              </div>
+              <div style={{ fontSize: 22, fontWeight: 700, color: "#3a2a1a", fontFamily: SF_PRO }}>
+                {currentMonthName} {currentYear}
+              </div>
+              {hitTarget && (
+                <div style={{ marginTop: 8, fontSize: 14, fontWeight: 700, color: "#27ae60" }}>
+                  🎯 Target Hit! Congratulations!
+                </div>
+              )}
             </div>
-            <Bar value={latestSales.achieved} max={latestSales.target} color="#a07ab8" />
-            <div style={{ fontSize: 11, color: "#9a8a7a", marginTop: 4 }}>RM {latestSales.achieved.toLocaleString()} / RM {latestSales.target.toLocaleString()}</div>
-          </Card>
-        )}
+
+            {/* Big bold percentage */}
+            <div style={{ background: salesBg, borderRadius: 20, padding: "16px 28px", textAlign: "center", minWidth: 130 }}>
+              <div style={{ fontSize: 58, fontWeight: 800, color: salesColor, lineHeight: 1, fontFamily: SF_PRO, letterSpacing: "-2px" }}>
+                {currentPct}<span style={{ fontSize: 26, letterSpacing: 0 }}>%</span>
+              </div>
+              <div style={{ fontSize: 11, fontWeight: 600, color: "#9a8a7a", marginTop: 4, textTransform: "uppercase", letterSpacing: 0.5 }}>
+                achieved
+              </div>
+            </div>
+          </div>
+
+          {/* Stats row */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 14, marginBottom: 22 }}>
+            {[
+              { label: "Target", value: `RM ${monthTarget.toLocaleString()}`, color: "#3a2a1a" },
+              { label: "Achieved", value: `RM ${currentAchieved.toLocaleString()}`, color: salesColor },
+              { label: "Remaining", value: currentRemaining > 0 ? `RM ${currentRemaining.toLocaleString()}` : "None 🎉", color: currentRemaining > 0 ? "#e74c3c" : "#27ae60" },
+            ].map(stat => (
+              <div key={stat.label} style={{ background: "#faf7f3", borderRadius: 12, padding: "14px 16px" }}>
+                <div style={{ fontSize: 11, fontWeight: 600, color: "#9a8a7a", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>{stat.label}</div>
+                <div style={{ fontSize: 18, fontWeight: 700, color: stat.color, fontFamily: SF_PRO }}>{stat.value}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Progress bar */}
+          <div>
+            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
+              <span style={{ fontSize: 12, color: "#9a8a7a", fontWeight: 600 }}>Progress to target</span>
+              <span style={{ fontSize: 12, fontWeight: 700, color: salesColor }}>{currentPct}%</span>
+            </div>
+            <div style={{ background: "#ede8e3", borderRadius: 99, height: 12, overflow: "hidden" }}>
+              <div style={{ width: `${currentPct}%`, height: "100%", background: salesColor, borderRadius: 99, transition: "width 0.6s ease" }} />
+            </div>
+          </div>
+        </div>
+
+        {/* B) Year-to-Date Summary */}
+        <div style={{ background: "#fff", borderRadius: 16, padding: "20px 24px", boxShadow: "0 2px 12px rgba(0,0,0,0.06)", marginBottom: 16 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: "#9a8a7a", textTransform: "uppercase", letterSpacing: 1, marginBottom: 16 }}>
+            Year-to-Date Summary — {currentYear}
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 16, marginBottom: 16 }}>
+            {[
+              { label: "Total Target",   value: `RM ${ytdTarget.toLocaleString()}`,   color: "#3a2a1a" },
+              { label: "Total Achieved", value: `RM ${ytdAchieved.toLocaleString()}`, color: ytdColor },
+              { label: "Overall %",      value: `${ytdPct}%`,                          color: ytdColor },
+              { label: "Months Hit",     value: `${ytdHit} hit`,                       color: "#27ae60",
+                sub: ytdMissed > 0 ? `${ytdMissed} missed` : null },
+            ].map(stat => (
+              <div key={stat.label}>
+                <div style={{ fontSize: 11, color: "#9a8a7a", fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4 }}>{stat.label}</div>
+                <div style={{ fontSize: 17, fontWeight: 700, color: stat.color, fontFamily: SF_PRO }}>{stat.value}</div>
+                {stat.sub && <div style={{ fontSize: 12, color: "#e74c3c", marginTop: 2 }}>{stat.sub}</div>}
+              </div>
+            ))}
+          </div>
+          <div style={{ background: "#ede8e3", borderRadius: 99, height: 8, overflow: "hidden" }}>
+            <div style={{ width: `${ytdPct}%`, height: "100%", background: ytdColor, borderRadius: 99, transition: "width 0.6s ease" }} />
+          </div>
+        </div>
+
+        {/* C) Monthly Breakdown Table */}
+        <div style={{ background: "#fff", borderRadius: 16, padding: "20px 24px", boxShadow: "0 2px 12px rgba(0,0,0,0.06)" }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: "#9a8a7a", textTransform: "uppercase", letterSpacing: 1, marginBottom: 16 }}>
+            Monthly Breakdown — {currentYear}
+          </div>
+          <div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, minWidth: 480 }}>
+              <thead>
+                <tr style={{ borderBottom: "2px solid #f0ebe4" }}>
+                  {["Month", "Target", "Achieved", "%", "Status"].map((h, i) => (
+                    <th key={h} style={{ textAlign: i === 0 ? "left" : i === 4 ? "center" : "right", padding: "8px 12px", color: "#9a8a7a", fontWeight: 700, fontSize: 11, textTransform: "uppercase", letterSpacing: 0.5, fontFamily: SF_PRO }}>
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {allMonths.map((r, i) => (
+                  <tr key={i} style={{ borderBottom: "1px solid #f8f5f2", background: r.isCurr ? "#fffbf5" : "transparent", opacity: r.isFuture ? 0.55 : 1 }}>
+                    <td style={{ padding: "11px 12px", fontWeight: r.isCurr ? 700 : 400, color: r.isCurr ? "#c4704a" : "#3a2a1a" }}>
+                      {r.m}
+                      {r.isCurr && <span style={{ fontSize: 10, background: "#fde8d8", color: "#c4704a", borderRadius: 99, padding: "1px 6px", marginLeft: 6, fontWeight: 700 }}>NOW</span>}
+                    </td>
+                    <td style={{ padding: "11px 12px", textAlign: "right", color: "#3a2a1a" }}>
+                      RM {r.target.toLocaleString()}
+                    </td>
+                    <td style={{ padding: "11px 12px", textAlign: "right", fontWeight: r.achieved > 0 ? 600 : 400, color: r.isFuture ? "#b0a09a" : r.hit ? "#27ae60" : r.achieved > 0 ? "#e74c3c" : "#b0a09a" }}>
+                      {r.isFuture ? "—" : `RM ${r.achieved.toLocaleString()}`}
+                    </td>
+                    <td style={{ padding: "11px 12px", textAlign: "right", fontWeight: 700, color: r.isFuture ? "#b0a09a" : r.pctVal >= 90 ? "#27ae60" : r.pctVal >= 50 ? "#f39c12" : r.pctVal > 0 ? "#e74c3c" : "#b0a09a" }}>
+                      {r.isFuture || r.pctVal === 0 ? "—" : `${r.pctVal}%`}
+                    </td>
+                    <td style={{ padding: "11px 12px", textAlign: "center", color: r.statusColor, fontWeight: 600, fontSize: 13 }}>
+                      {r.statusIcon} {r.statusLabel}
+                    </td>
+                  </tr>
+                ))}
+                {/* TOTAL row */}
+                <tr style={{ borderTop: "2px solid #f0ebe4", background: "#faf7f3" }}>
+                  <td style={{ padding: "12px 12px", fontWeight: 700, color: "#3a2a1a", fontFamily: SF_PRO }}>TOTAL</td>
+                  <td style={{ padding: "12px 12px", textAlign: "right", fontWeight: 700, color: "#3a2a1a" }}>RM {totalTarget.toLocaleString()}</td>
+                  <td style={{ padding: "12px 12px", textAlign: "right", fontWeight: 700, color: totalColor }}>RM {totalAchieved.toLocaleString()}</td>
+                  <td style={{ padding: "12px 12px", textAlign: "right", fontWeight: 700, color: totalColor }}>{totalPct > 0 ? `${totalPct}%` : "—"}</td>
+                  <td />
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
       </div>
 
+      {/* ══════════════════════════════════════════════════
+          REST OF DASHBOARD
+      ══════════════════════════════════════════════════ */}
+
+      {/* Leave + Integrity cards */}
+      <div className="cards-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 18, marginBottom: 28 }}>
+        <SmallCard title="Annual Leave Left" accent="#c4704a" onClick={() => setPage("leave")}>
+          <div style={{ fontSize: 36, fontWeight: 800, color: "#c4704a", fontFamily: SF_PRO }}>{currentUser.annualLeft}<span style={{ fontSize: 16, color: "#9a8a7a", fontWeight: 400 }}> days</span></div>
+          <Bar value={currentUser.annualLeft} max={12} color="#c4704a" />
+        </SmallCard>
+        <SmallCard title={`Integrity Score — ${MONTHS[now.getMonth()]}`} accent="#7ab8a0" onClick={() => setPage("checklist")}>
+          {myScore !== null
+            ? <><div style={{ fontSize: 36, fontWeight: 800, color: "#7ab8a0", fontFamily: SF_PRO }}>{myScore}<span style={{ fontSize: 16 }}>%</span></div><Bar value={myScore} max={100} color="#7ab8a0" /></>
+            : <div style={{ fontSize: 14, color: "#9a8a7a" }}>Not submitted yet<br /><span style={{ color: "#c4704a", fontWeight: 600, fontSize: 13 }}>→ Complete checklist</span></div>}
+        </SmallCard>
+      </div>
+
+      {/* Pending leave requests */}
       {pendingLeave.length > 0 && (
         <div style={{ background: "#fffbf5", border: "1.5px solid #fde8d8", borderRadius: 14, padding: "18px 22px", marginBottom: 22 }}>
           <div style={{ fontWeight: 700, color: "#c4704a", marginBottom: 12 }}>⏳ Pending Leave Requests {isAdmin && `(${pendingLeave.length})`}</div>
           {pendingLeave.map(l => {
             const u = users.find(u => u.id === l.userId);
             return (
-              <div key={l.id} className="pending-item" style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"10px 0", borderBottom:"1px solid #f0ebe4" }}>
+              <div key={l.id} className="pending-item" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: "1px solid #f0ebe4" }}>
                 <div>
                   {isAdmin && <span style={{ fontWeight: 600, color: "#5a4a3a" }}>{u?.name} · </span>}
                   <span style={{ color: "#7a6a5a" }}>{l.type} Leave · {l.days} day{l.days > 1 ? "s" : ""}</span>
@@ -435,6 +627,7 @@ function DashboardPage({ currentUser, users, leaveRequests, checklists, sales, i
         </div>
       )}
 
+      {/* Admin: team integrity overview */}
       {isAdmin && (
         <div style={{ background: "#fff", borderRadius: 16, padding: "22px 24px", boxShadow: "0 2px 12px rgba(0,0,0,0.06)" }}>
           <div style={{ fontWeight: 700, color: "#3a2a1a", marginBottom: 16, fontSize: 15 }}>👥 Team Integrity Overview — {MONTHS[now.getMonth()]} {now.getFullYear()}</div>
@@ -449,7 +642,7 @@ function DashboardPage({ currentUser, users, leaveRequests, checklists, sales, i
                     <div style={{ fontSize: 13, fontWeight: 600, color: "#3a2a1a" }}>{u.name}</div>
                   </div>
                   {score !== null
-                    ? <><div style={{ display:"flex", justifyContent:"space-between", marginBottom: 6 }}><span style={{ fontSize: 12, color: "#7a6a5a" }}>Score</span><span style={{ fontSize: 12, fontWeight: 700, color: score>=80?"#2ecc71":score>=60?"#f39c12":"#e74c3c" }}>{score}%</span></div><Bar value={score} max={100} color={score>=80?"#2ecc71":score>=60?"#f39c12":"#e74c3c"} /></>
+                    ? <><div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}><span style={{ fontSize: 12, color: "#7a6a5a" }}>Score</span><span style={{ fontSize: 12, fontWeight: 700, color: score >= 80 ? "#2ecc71" : score >= 60 ? "#f39c12" : "#e74c3c" }}>{score}%</span></div><Bar value={score} max={100} color={score >= 80 ? "#2ecc71" : score >= 60 ? "#f39c12" : "#e74c3c"} /></>
                     : <div style={{ fontSize: 12, color: "#b0a09a" }}>Not submitted</div>}
                 </div>
               );
@@ -1012,7 +1205,7 @@ const inputStyle = {
   borderRadius: 10,
   fontSize: 14,
   outline: "none",
-  fontFamily: "Georgia, serif",
+  fontFamily: '-apple-system, "SF Pro Text", "Helvetica Neue", Arial, sans-serif',
   background: "#fff",
   color: "#3a2a1a",
   boxSizing: "border-box",
