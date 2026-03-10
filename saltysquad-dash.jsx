@@ -165,31 +165,27 @@ export default function App() {
       const [usersRes, leaveRes, salesRes, checklistRes] = await Promise.all([
         supabase.from("users").select("*"),
         supabase.from("leave_requests").select("*"),
-        supabase.from("sales_targets").select("*").order("year").order("id"),
+        supabase.from("sales_targets").select("*"),
         supabase.from("checklist_submissions").select("*"),
       ]);
       if (cancelled) return;
-
-      console.log("[loadData] salesRes data:", salesRes.data, "error:", salesRes.error);
 
       if (usersRes.data) setUsers(usersRes.data.map(mapUser));
       if (leaveRes.data) setLeaveRequests(leaveRes.data.map(mapLeave));
       if (salesRes.data) setSales(salesRes.data.map(mapSales));
 
-      // ── DEBUG: checklist load ─────────────────────────────────────────────
-      console.log("[loadData] checklistRes raw data:", checklistRes.data, "error:", checklistRes.error);
+      console.log("[loadData] checklist_submissions — rows:", checklistRes.data?.length, "error:", checklistRes.error);
       if (checklistRes.data) {
+        console.log("[loadData] checklist rows detail:", checklistRes.data.map(r => ({ user_id: r.user_id, month_key: r.month_key, checks_count: Object.values(r.checks || {}).filter(Boolean).length })));
         const map = {};
         for (const row of checklistRes.data) {
-          const uid = Number(row.user_id); // normalise to number key
+          const uid = Number(row.user_id);
           const checks = row.checks || {};
-          console.log("[loadData] row — user_id:", uid, "(type:", typeof uid, ") month_key:", row.month_key, "checks:", checks);
           if (!map[uid]) map[uid] = {};
           map[uid][row.month_key] = { checks, remarks: row.remarks || "" };
         }
+        console.log("[loadData] checklists map keys (user ids):", Object.keys(map));
         setChecklists(map);
-      } else {
-        console.warn("[loadData] No checklist data returned from Supabase.");
       }
       setLoading(false);
     }
@@ -217,22 +213,6 @@ export default function App() {
     }
 
     setLeaveRequests(prev => prev.map(l => l.id === id ? { ...l, status: action } : l));
-
-    if (action === "Approved") {
-      const u = users.find(u => u.id === req.userId);
-      if (!u) return;
-      const newBalance = Math.max(0, u.annualLeft - req.days);
-      const { error: balErr } = await supabase
-        .from("users")
-        .update({ annual_left: newBalance })
-        .eq("id", req.userId);
-      if (!balErr) {
-        setUsers(prev => prev.map(u => u.id !== req.userId ? u : { ...u, annualLeft: newBalance }));
-        if (req.userId === currentUser.id) {
-          setCurrentUser(prev => ({ ...prev, annualLeft: newBalance }));
-        }
-      }
-    }
   }
 
   const nav = [
@@ -375,6 +355,82 @@ function Login({ users, onLogin }) {
 
 const SF_PRO = '-apple-system, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Arial, sans-serif';
 
+// ── TEAM INTEGRITY SECTION (dashboard) ────────────────────────────────────────
+// Fetches previous month's checklist_submissions fresh on every mount so the
+// dashboard always shows live data regardless of when the admin logged in.
+
+function TeamIntegritySection({ staffList, prevMonthKey, prevMonthName, prevYear }) {
+  const [scores, setScores] = useState(null); // null = loading, {} = loaded
+
+  useEffect(() => {
+    async function fetchPrevMonth() {
+      console.log("[TeamIntegrity] fetching month_key:", prevMonthKey);
+      const { data, error } = await supabase
+        .from("checklist_submissions")
+        .select("*")
+        .eq("month_key", prevMonthKey);
+
+      console.log("[TeamIntegrity] raw result — rows:", data?.length, "error:", error);
+      if (data) {
+        console.log("[TeamIntegrity] rows detail:", data.map(r => ({
+          user_id: r.user_id,
+          user_id_type: typeof r.user_id,
+          month_key: r.month_key,
+          checked: Object.values(r.checks || {}).filter(Boolean).length,
+        })));
+      }
+
+      const map = {};
+      if (data) {
+        for (const row of data) {
+          const uid = Number(row.user_id);
+          map[uid] = row.checks || {};
+        }
+      }
+      console.log("[TeamIntegrity] score map keys:", Object.keys(map));
+      // Log each staff lookup so we can see type mismatches
+      staffList.forEach(u => {
+        const uid = Number(u.id);
+        const found = !!map[uid];
+        console.log(`[TeamIntegrity] staff ${u.name} id=${u.id}(${typeof u.id}) → Number=${uid} found=${found}`);
+      });
+      setScores(map);
+    }
+    fetchPrevMonth();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prevMonthKey]);
+
+  return (
+    <div style={{ background: "#fff", borderRadius: 16, padding: "22px 24px", boxShadow: "0 2px 12px rgba(0,0,0,0.06)" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+        <div style={{ fontWeight: 700, color: "#3a2a1a", fontSize: 15 }}>👥 Team Integrity — {prevMonthName} {prevYear}</div>
+        {scores === null && <span style={{ fontSize: 12, color: "#9a8a7a" }}>Loading…</span>}
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12 }}>
+        {staffList.map(u => {
+          const checks = scores?.[Number(u.id)];
+          // scores===null means still loading; checks===undefined means submitted=no
+          const loading = scores === null;
+          const score = checks !== undefined ? pct(checks) : null;
+          return (
+            <div key={u.id} style={{ background: "#faf7f3", borderRadius: 12, padding: "14px 16px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+                <div style={{ width: 30, height: 30, borderRadius: "50%", background: "#c4704a", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700 }}>{u.avatar}</div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: "#3a2a1a" }}>{u.name}</div>
+              </div>
+              {loading
+                ? <div style={{ fontSize: 12, color: "#b0a09a" }}>Loading…</div>
+                : score !== null
+                  ? <><div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}><span style={{ fontSize: 12, color: "#7a6a5a" }}>Score</span><span style={{ fontSize: 12, fontWeight: 700, color: score >= 80 ? "#2ecc71" : score >= 60 ? "#f39c12" : "#e74c3c" }}>{score}%</span></div><Bar value={score} max={100} color={score >= 80 ? "#2ecc71" : score >= 60 ? "#f39c12" : "#e74c3c"} /></>
+                  : <div style={{ fontSize: 12, color: "#b0a09a" }}>Not submitted</div>}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function DashboardPage({ currentUser, users, leaveRequests, checklists, sales, isAdmin, setPage, onLeaveAction }) {
   const now = new Date();
   const currentYear = now.getFullYear();
@@ -386,8 +442,14 @@ function DashboardPage({ currentUser, users, leaveRequests, checklists, sales, i
   const pendingLeave = leaveRequests.filter(l => l.status === "Pending" && (isAdmin || l.userId === currentUser.id));
   const staffList = users.filter(u => u.role !== "admin");
 
+  // ── Previous month (for Team Integrity Overview) ──
+  const prevMonthIdx = currentMonthIdx === 0 ? 11 : currentMonthIdx - 1;
+  const prevYear = currentMonthIdx === 0 ? currentYear - 1 : currentYear;
+  const prevMonthKey = `${prevYear}-${String(prevMonthIdx + 1).padStart(2, "0")}`;
+  const prevMonthName = MONTHS[prevMonthIdx];
+
   // ── Sales calculations ──
-  const currentSales = sales.find(s => s.month === currentMonthName && s.year === currentYear);
+  const currentSales = sales.find(s => s.month === currentMonthName);
   const monthTarget = currentSales?.target || 500000;
   const currentAchieved = currentSales?.achieved || 0;
   const currentRemaining = Math.max(0, monthTarget - currentAchieved);
@@ -399,7 +461,7 @@ function DashboardPage({ currentUser, users, leaveRequests, checklists, sales, i
   // ── Year-to-date ──
   const ytdRows = sales.filter(s => {
     const mIdx = MONTHS.indexOf(s.month);
-    return s.year === currentYear && mIdx <= currentMonthIdx;
+    return mIdx <= currentMonthIdx;
   });
   const ytdTarget   = ytdRows.reduce((sum, s) => sum + s.target, 0);
   const ytdAchieved = ytdRows.reduce((sum, s) => sum + s.achieved, 0);
@@ -413,7 +475,7 @@ function DashboardPage({ currentUser, users, leaveRequests, checklists, sales, i
 
   // ── All 12 months for breakdown table ──
   const allMonths = MONTHS.map((m, i) => {
-    const row     = sales.find(s => s.month === m && s.year === currentYear);
+    const row     = sales.find(s => s.month === m);
     const isPast  = i < currentMonthIdx;
     const isCurr  = i === currentMonthIdx;
     const isFuture = i > currentMonthIdx;
@@ -597,12 +659,8 @@ function DashboardPage({ currentUser, users, leaveRequests, checklists, sales, i
           REST OF DASHBOARD
       ══════════════════════════════════════════════════ */}
 
-      {/* Leave + Integrity cards */}
+      {/* Integrity card */}
       <div className="cards-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 18, marginBottom: 28 }}>
-        <SmallCard title="Annual Leave Left" accent="#c4704a" onClick={() => setPage("leave")}>
-          <div style={{ fontSize: 36, fontWeight: 800, color: "#c4704a", fontFamily: SF_PRO }}>{currentUser.annualLeft}<span style={{ fontSize: 16, color: "#9a8a7a", fontWeight: 400 }}> days</span></div>
-          <Bar value={currentUser.annualLeft} max={12} color="#c4704a" />
-        </SmallCard>
         <SmallCard title={`Integrity Score — ${MONTHS[now.getMonth()]}`} accent="#7ab8a0" onClick={() => setPage("checklist")}>
           {myScore !== null
             ? <><div style={{ fontSize: 36, fontWeight: 800, color: "#7ab8a0", fontFamily: SF_PRO }}>{myScore}<span style={{ fontSize: 16 }}>%</span></div><Bar value={myScore} max={100} color="#7ab8a0" /></>
@@ -639,26 +697,12 @@ function DashboardPage({ currentUser, users, leaveRequests, checklists, sales, i
 
       {/* Admin: team integrity overview */}
       {isAdmin && (
-        <div style={{ background: "#fff", borderRadius: 16, padding: "22px 24px", boxShadow: "0 2px 12px rgba(0,0,0,0.06)" }}>
-          <div style={{ fontWeight: 700, color: "#3a2a1a", marginBottom: 16, fontSize: 15 }}>👥 Team Integrity Overview — {MONTHS[now.getMonth()]} {now.getFullYear()}</div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12 }}>
-            {staffList.map(u => {
-              const cl = checklists[u.id]?.[monthKey];
-              const score = cl ? pct(cl.checks) : null;
-              return (
-                <div key={u.id} style={{ background: "#faf7f3", borderRadius: 12, padding: "14px 16px" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
-                    <div style={{ width: 30, height: 30, borderRadius: "50%", background: "#c4704a", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700 }}>{u.avatar}</div>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: "#3a2a1a" }}>{u.name}</div>
-                  </div>
-                  {score !== null
-                    ? <><div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}><span style={{ fontSize: 12, color: "#7a6a5a" }}>Score</span><span style={{ fontSize: 12, fontWeight: 700, color: score >= 80 ? "#2ecc71" : score >= 60 ? "#f39c12" : "#e74c3c" }}>{score}%</span></div><Bar value={score} max={100} color={score >= 80 ? "#2ecc71" : score >= 60 ? "#f39c12" : "#e74c3c"} /></>
-                    : <div style={{ fontSize: 12, color: "#b0a09a" }}>Not submitted</div>}
-                </div>
-              );
-            })}
-          </div>
-        </div>
+        <TeamIntegritySection
+          staffList={staffList}
+          prevMonthKey={prevMonthKey}
+          prevMonthName={prevMonthName}
+          prevYear={prevYear}
+        />
       )}
     </div>
   );
@@ -674,7 +718,7 @@ function LeavePage({ currentUser, users, setUsers, leaveRequests, setLeaveReques
 
   // Admin: record leave for staff
   const nonAdminUsers = users.filter(u => u.role !== "admin");
-  const [recordForm, setRecordForm] = useState({ userId: "", type: "Annual", from: today, to: today, reason: "", approveNow: false });
+  const [recordForm, setRecordForm] = useState({ userId: "", type: "Annual", from: today, to: today, reason: "" });
   const [recordMsg, setRecordMsg] = useState("");
 
   // Admin: edit existing leave
@@ -691,8 +735,6 @@ function LeavePage({ currentUser, users, setUsers, leaveRequests, setLeaveReques
     const days = calcDays(form.from, form.to);
     if (!form.from || !form.to || !form.reason) { setMsg("Please fill in all fields."); return; }
     if (days <= 0) { setMsg("End date must be on or after start date."); return; }
-    const bal = currentUser.annualLeft;
-    if (days > bal) { setMsg(`Insufficient annual leave balance (${bal} days left).`); return; }
 
     const { data, error } = await supabase
       .from("leave_requests")
@@ -711,24 +753,17 @@ function LeavePage({ currentUser, users, setUsers, leaveRequests, setLeaveReques
     const days = calcDays(recordForm.from, recordForm.to);
     if (days <= 0) { setRecordMsg("End date must be on or after start date."); return; }
     const targetUser = users.find(u => u.id === uid);
-    const status = recordForm.approveNow ? "Approved" : "Pending";
 
     const { data, error } = await supabase
       .from("leave_requests")
-      .insert({ user_id: uid, type: recordForm.type, from_date: recordForm.from, to_date: recordForm.to, days, reason: recordForm.reason, status })
+      .insert({ user_id: uid, type: recordForm.type, from_date: recordForm.from, to_date: recordForm.to, days, reason: recordForm.reason, status: "Pending" })
       .select().single();
 
     if (error) { setRecordMsg("❌ Failed to record leave."); return; }
     setLeaveRequests(prev => [...prev, mapLeave(data)]);
 
-    if (recordForm.approveNow && targetUser) {
-      const newBalance = Math.max(0, targetUser.annualLeft - days);
-      const { error: balErr } = await supabase.from("users").update({ annual_left: newBalance }).eq("id", uid);
-      if (!balErr) setUsers(prev => prev.map(u => u.id !== uid ? u : { ...u, annualLeft: newBalance }));
-    }
-
     setRecordMsg(`✅ Leave recorded for ${targetUser?.name || "staff"}!`);
-    setRecordForm(prev => ({ ...prev, from: today, to: today, reason: "", approveNow: false }));
+    setRecordForm(prev => ({ ...prev, from: today, to: today, reason: "" }));
   }
 
   function startEditLeave(l) {
@@ -748,14 +783,6 @@ function LeavePage({ currentUser, users, setUsers, leaveRequests, setLeaveReques
         ...r, type: editLeaveVals.type, from: editLeaveVals.from, to: editLeaveVals.to,
         days, reason: editLeaveVals.reason, status: editLeaveVals.status,
       }));
-      if (editLeaveVals.status === "Approved" && l.status !== "Approved") {
-        const targetUser = users.find(u => u.id === l.userId);
-        if (targetUser) {
-          const newBalance = Math.max(0, targetUser.annualLeft - days);
-          const { error: balErr } = await supabase.from("users").update({ annual_left: newBalance }).eq("id", l.userId);
-          if (!balErr) setUsers(prev => prev.map(u => u.id !== l.userId ? u : { ...u, annualLeft: newBalance }));
-        }
-      }
     }
     setEditingLeave(null);
   }
@@ -777,13 +804,7 @@ function LeavePage({ currentUser, users, setUsers, leaveRequests, setLeaveReques
 
   return (
     <div>
-      <h2 style={{ fontSize: 22, fontWeight: 700, color: "#3a2a1a", marginBottom: 8 }}>🌴 Leave Management</h2>
-      <div className="leave-balance-row" style={{ display: "flex", gap: 16, marginBottom: 24 }}>
-        <div style={{ background: "#fde8d8", borderRadius: 12, padding: "14px 24px", textAlign: "center" }}>
-          <div style={{ fontSize: 28, fontWeight: 800, color: "#c4704a" }}>{currentUser.annualLeft}</div>
-          <div style={{ fontSize: 12, color: "#7a6a5a" }}>Annual Days Left</div>
-        </div>
-      </div>
+      <h2 style={{ fontSize: 22, fontWeight: 700, color: "#3a2a1a", marginBottom: 24 }}>🌴 Leave Management</h2>
 
       <div style={{ display: "flex", gap: 8, marginBottom: 20, flexWrap: "wrap" }}>
         <TabBtn id="apply" label="Apply for Leave" />
@@ -908,10 +929,6 @@ function LeavePage({ currentUser, users, setUsers, leaveRequests, setLeaveReques
               <label style={labelStyle}>Reason</label>
               <textarea value={recordForm.reason} onChange={e => setRecordForm({...recordForm, reason: e.target.value})} rows={3} placeholder="Brief reason..." style={{ ...inputStyle, resize: "vertical" }} />
             </div>
-            <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", fontSize: 13, color: "#3a2a1a" }}>
-              <input type="checkbox" checked={recordForm.approveNow} onChange={e => setRecordForm({...recordForm, approveNow: e.target.checked})} style={{ width: 16, height: 16, cursor: "pointer" }} />
-              Approve immediately (deducts from annual balance)
-            </label>
             {recordMsg && <div style={{ color: recordMsg.startsWith("✅") ? "#2ecc71" : "#e74c3c", fontSize: 13 }}>{recordMsg}</div>}
             <button onClick={handleRecord} style={{ background: "#c4704a", color: "#fff", border: "none", borderRadius: 10, padding: "12px", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>Record Leave</button>
           </div>
@@ -1059,14 +1076,11 @@ function ChecklistPage({ currentUser, users, checklists, setChecklists, isAdmin 
     setTimeout(() => setSaveStatus(null), 4000);
   }
 
-  // Build month options (12 for admin, 6 for staff)
-  const monthOptions = [];
-  const maxMonths = isAdmin ? 12 : 6;
-  for (let i = 0; i < maxMonths; i++) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
-    monthOptions.push({ key, label: `${MONTHS[d.getMonth()]} ${d.getFullYear()}` });
-  }
+  // Build month options — 2026 only (Jan–Dec)
+  const monthOptions = MONTHS.map((m, i) => ({
+    key: `2026-${String(i + 1).padStart(2, "0")}`,
+    label: `${m} 2026`,
+  }));
 
   const score = scoreOf(cl.checks);
   const staffList = users.filter(u => u.role !== "admin");
@@ -1195,47 +1209,140 @@ function ChecklistPage({ currentUser, users, checklists, setChecklists, isAdmin 
       )}
 
       {tab === "overview" && isAdmin && (
-        <div>
-          <div style={{ background: "#fff", borderRadius: 16, padding: "24px", boxShadow: "0 2px 12px rgba(0,0,0,0.06)" }}>
-            <div style={{ fontSize: 15, fontWeight: 700, color: "#3a2a1a", marginBottom: 20 }}>Month-on-Month Integrity Scores</div>
-            <div className="table-scroll">
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-              <thead>
-                <tr>
-                  <th style={{ textAlign: "left", padding: "8px 12px", color: "#9a8a7a", fontWeight: 700, borderBottom: "2px solid #f0ebe4" }}>Staff Member</th>
-                  {monthOptions.slice(0,5).reverse().map(m => (
-                    <th key={m.key} style={{ textAlign: "center", padding: "8px 12px", color: "#9a8a7a", fontWeight: 700, borderBottom: "2px solid #f0ebe4", minWidth: 80 }}>{m.label}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {staffList.map(u => (
-                  <tr key={u.id} style={{ borderBottom: "1px solid #f8f5f2" }}>
-                    <td style={{ padding: "12px 12px", fontWeight: 600, color: "#3a2a1a" }}>
-                      <div style={{ display:"flex", alignItems:"center", gap:8 }}>
-                        <div style={{ width:26, height:26, borderRadius:"50%", background:"#c4704a", color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontSize:10, fontWeight:700 }}>{u.avatar}</div>
-                        {u.name}
-                      </div>
-                    </td>
-                    {monthOptions.slice(0,5).reverse().map(m => {
-                      const c = checklists[u.id]?.[m.key];
-                      const p = c ? pct(c.checks) : null;
-                      return (
-                        <td key={m.key} style={{ textAlign: "center", padding: "12px" }}>
-                          {p !== null
-                            ? <span style={{ background: p>=80?"#eafaf1":p>=60?"#fff4e0":"#fdf0f0", color: p>=80?"#27ae60":p>=60?"#f39c12":"#e74c3c", fontWeight: 700, fontSize: 13, padding: "4px 10px", borderRadius: 8 }}>{p}%</span>
-                            : <span style={{ color: "#c0b5ae" }}>—</span>}
-                        </td>
-                      );
-                    })}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            </div>
-          </div>
-        </div>
+        <OverviewTab
+          checklists={checklists}
+          setChecklists={setChecklists}
+          staffList={staffList}
+          monthOptions={monthOptions}
+          now={now}
+        />
       )}
+    </div>
+  );
+}
+
+// ── BIRD'S EYE VIEW (Overview Tab) ───────────────────────────────────────────
+
+function OverviewTab({ checklists, setChecklists, staffList, monthOptions, now }) {
+  const currentMonthIdx = now.getMonth(); // 0-based, e.g. 2 for March
+  // Jan 2026 … current month, in chronological order
+  const overviewMonths = monthOptions.slice(0, currentMonthIdx + 1);
+  const currentMonthKey = overviewMonths[overviewMonths.length - 1]?.key;
+
+  const scrollRef = useRef(null);
+  const [fetching, setFetching] = useState(false);
+
+  // Re-fetch all checklist_submissions every time this tab mounts so the
+  // admin always sees the freshest data (catches saves by other users).
+  useEffect(() => {
+    async function refetch() {
+      setFetching(true);
+      const { data, error } = await supabase
+        .from("checklist_submissions")
+        .select("*");
+
+      console.log("[OverviewTab] refetch — rows:", data?.length, "error:", error);
+      if (data) {
+        console.log("[OverviewTab] raw rows:", data.map(r => ({
+          user_id: r.user_id,
+          user_id_type: typeof r.user_id,
+          month_key: r.month_key,
+          checked: Object.values(r.checks || {}).filter(Boolean).length,
+        })));
+
+        const map = {};
+        for (const row of data) {
+          const uid = Number(row.user_id);
+          if (!map[uid]) map[uid] = {};
+          map[uid][row.month_key] = { checks: row.checks || {}, remarks: row.remarks || "" };
+        }
+        console.log("[OverviewTab] rebuilt map — keys:", Object.keys(map));
+        // Log each staff member lookup
+        staffList.forEach(u => {
+          overviewMonths.forEach(m => {
+            const found = !!map[Number(u.id)]?.[m.key];
+            console.log(`[OverviewTab] lookup: user=${u.name}(id=${u.id}, type=${typeof u.id}) month=${m.key} → found=${found}`);
+          });
+        });
+        setChecklists(map);
+      }
+      setFetching(false);
+    }
+    refetch();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Auto-scroll to current month column once data loads
+  useEffect(() => {
+    if (!scrollRef.current) return;
+    // Scroll all the way right so the current (last) month is visible
+    scrollRef.current.scrollLeft = scrollRef.current.scrollWidth;
+  }, [fetching]);
+
+  return (
+    <div>
+      <div style={{ background: "#fff", borderRadius: 16, padding: "24px", boxShadow: "0 2px 12px rgba(0,0,0,0.06)" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
+          <div style={{ fontSize: 15, fontWeight: 700, color: "#3a2a1a" }}>Month-on-Month Integrity Scores</div>
+          {fetching && <span style={{ fontSize: 12, color: "#9a8a7a" }}>Refreshing…</span>}
+        </div>
+        <div
+          ref={scrollRef}
+          style={{ overflowX: "auto", WebkitOverflowScrolling: "touch" }}
+        >
+          <table style={{ borderCollapse: "collapse", fontSize: 13, minWidth: "max-content" }}>
+            <thead>
+              <tr>
+                <th style={{ textAlign: "left", padding: "8px 16px", color: "#9a8a7a", fontWeight: 700, borderBottom: "2px solid #f0ebe4", whiteSpace: "nowrap", position: "sticky", left: 0, background: "#fff", zIndex: 2 }}>
+                  Staff Member
+                </th>
+                {overviewMonths.map(m => {
+                  const isCurrent = m.key === currentMonthKey;
+                  return (
+                    <th
+                      key={m.key}
+                      style={{
+                        textAlign: "center", padding: "8px 16px", fontWeight: 700,
+                        borderBottom: "2px solid #f0ebe4", minWidth: 100, whiteSpace: "nowrap",
+                        color: isCurrent ? "#c4704a" : "#9a8a7a",
+                        background: isCurrent ? "#fffbf5" : "transparent",
+                        borderTop: isCurrent ? "2px solid #fde8d8" : "none",
+                      }}
+                    >
+                      {m.label}
+                      {isCurrent && <span style={{ display: "block", fontSize: 9, fontWeight: 700, color: "#c4704a", letterSpacing: 0.5, textTransform: "uppercase", marginTop: 2 }}>current</span>}
+                    </th>
+                  );
+                })}
+              </tr>
+            </thead>
+            <tbody>
+              {staffList.map(u => (
+                <tr key={u.id} style={{ borderBottom: "1px solid #f8f5f2" }}>
+                  <td style={{ padding: "12px 16px", fontWeight: 600, color: "#3a2a1a", whiteSpace: "nowrap", position: "sticky", left: 0, background: "#fff", zIndex: 1 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <div style={{ width: 26, height: 26, borderRadius: "50%", background: "#c4704a", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, flexShrink: 0 }}>{u.avatar}</div>
+                      {u.name}
+                    </div>
+                  </td>
+                  {overviewMonths.map(m => {
+                    const isCurrent = m.key === currentMonthKey;
+                    const c = checklists[Number(u.id)]?.[m.key];
+                    const p = c ? pct(c.checks) : null;
+                    return (
+                      <td key={m.key} style={{ textAlign: "center", padding: "12px 16px", background: isCurrent ? "#fffbf5" : "transparent" }}>
+                        {p !== null
+                          ? <span style={{ background: p>=80?"#eafaf1":p>=60?"#fff4e0":"#fdf0f0", color: p>=80?"#27ae60":p>=60?"#f39c12":"#e74c3c", fontWeight: 700, fontSize: 13, padding: "4px 10px", borderRadius: 8 }}>{p}%</span>
+                          : <span style={{ color: "#c0b5ae" }}>—</span>}
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
   );
 }
@@ -1245,24 +1352,14 @@ function ChecklistPage({ currentUser, users, checklists, setChecklists, isAdmin 
 const MONTH_ORDER = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 
 function SalesPage({ sales, setSales, isAdmin }) {
-  console.log("[SalesPage] rendering — raw sales prop length:", sales.length, sales);
-
   const [editing, setEditing] = useState(null);
   const [editVals, setEditVals] = useState({});
 
-  // Pick the right year: prefer current year, fall back to the latest year in data
-  const currentYear = new Date().getFullYear();
-  const yearsInData = [...new Set(sales.map(s => s.year))].sort((a, b) => b - a);
-  const displayYear = yearsInData.includes(currentYear) ? currentYear : (yearsInData[0] ?? currentYear);
-  const yearSales = sales.filter(s => s.year === displayYear);
-
-  // Deduplicate: keep first occurrence of each month, then sort by canonical order
+  // Sort all rows by canonical month order (no year filter)
   const seen = new Set();
-  const dedupedSales = yearSales
+  const dedupedSales = [...sales]
     .filter(s => { if (seen.has(s.month)) return false; seen.add(s.month); return true; })
     .sort((a, b) => MONTH_ORDER.indexOf(a.month) - MONTH_ORDER.indexOf(b.month));
-
-  console.log("[SalesPage] displayYear:", displayYear, "yearsInData:", yearsInData, "rows after filter:", dedupedSales.length);
 
   function startEdit(month) {
     const idx = dedupedSales.findIndex(s => s.month === month);
@@ -1295,12 +1392,8 @@ function SalesPage({ sales, setSales, isAdmin }) {
       {dedupedSales.length === 0 && (
         <div style={{ background: "#fff", borderRadius: 16, padding: "40px 24px", boxShadow: "0 2px 12px rgba(0,0,0,0.06)", textAlign: "center", color: "#9a8a7a" }}>
           <div style={{ fontSize: 36, marginBottom: 12 }}>📭</div>
-          <div style={{ fontSize: 16, fontWeight: 700, color: "#5a4a3a", marginBottom: 8 }}>No sales data found for {displayYear}</div>
-          <div style={{ fontSize: 13 }}>
-            {sales.length === 0
-              ? "No rows returned from the sales_targets table. Check your Supabase data and RLS policies."
-              : `Data exists for years: ${yearsInData.join(", ")} — but none match ${displayYear}.`}
-          </div>
+          <div style={{ fontSize: 16, fontWeight: 700, color: "#5a4a3a", marginBottom: 8 }}>No sales data found</div>
+          <div style={{ fontSize: 13 }}>No rows returned from the sales_targets table. Check your Supabase data and RLS policies.</div>
         </div>
       )}
 
@@ -1527,7 +1620,7 @@ function AdminPage({ users, setUsers, leaveRequests, setLeaveRequests, checklist
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
             <thead>
               <tr>
-                {["Staff Member", "Role", "Title", "Annual Left", "Checklist", "Actions"].map(h => (
+                {["Staff Member", "Role", "Title", "Checklist", "Actions"].map(h => (
                   <th key={h} style={{ textAlign: "left", padding: "8px 12px", color: "#9a8a7a", fontWeight: 700, borderBottom: "2px solid #f0ebe4" }}>{h}</th>
                 ))}
               </tr>
@@ -1546,7 +1639,6 @@ function AdminPage({ users, setUsers, leaveRequests, setLeaveRequests, checklist
                     </td>
                     <td style={{ padding: "12px", color:"#7a6a5a", textTransform: "capitalize" }}>{u.role}</td>
                     <td style={{ padding: "12px", color:"#7a6a5a" }}>{u.title}</td>
-                    <td style={{ padding: "12px" }}><span style={{ fontWeight:700, color: u.annualLeft<4?"#e74c3c":"#2ecc71" }}>{u.annualLeft}</span> / 12</td>
                     <td style={{ padding: "12px" }}>
                       {score !== null
                         ? <span style={{ background: score>=80?"#eafaf1":score>=60?"#fff4e0":"#fdf0f0", color:score>=80?"#27ae60":score>=60?"#f39c12":"#e74c3c", fontWeight:700, fontSize:12, padding:"3px 10px", borderRadius:99 }}>{score}%</span>
@@ -1603,11 +1695,6 @@ function AdminPage({ users, setUsers, leaveRequests, setLeaveRequests, checklist
                 <label style={labelStyle}>Job Title</label>
                 <input value={userForm.title} onChange={e => setUserForm({...userForm, title: e.target.value})} placeholder="e.g. Sales Executive" style={inputStyle} />
               </div>
-              {userModal === "add" && (
-                <div style={{ fontSize: 12, color: "#9a8a7a", background: "#faf7f3", borderRadius: 8, padding: "8px 12px" }}>
-                  Annual leave will default to <strong>12 days</strong>.
-                </div>
-              )}
               {userMsg && <div style={{ color: userMsg.startsWith("✅") ? "#2ecc71" : "#e74c3c", fontSize: 13, fontWeight: 600 }}>{userMsg}</div>}
               <div style={{ display: "flex", gap: 10, marginTop: 4 }}>
                 <button onClick={handleSaveUser} style={{ flex: 1, background: "#c4704a", color: "#fff", border: "none", borderRadius: 10, padding: "12px", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>
