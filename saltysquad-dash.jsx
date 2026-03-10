@@ -175,13 +175,21 @@ export default function App() {
       if (usersRes.data) setUsers(usersRes.data.map(mapUser));
       if (leaveRes.data) setLeaveRequests(leaveRes.data.map(mapLeave));
       if (salesRes.data) setSales(salesRes.data.map(mapSales));
+
+      // ── DEBUG: checklist load ─────────────────────────────────────────────
+      console.log("[loadData] checklistRes raw data:", checklistRes.data, "error:", checklistRes.error);
       if (checklistRes.data) {
         const map = {};
         for (const row of checklistRes.data) {
-          if (!map[row.user_id]) map[row.user_id] = {};
-          map[row.user_id][row.month_key] = { checks: row.checks || {}, remarks: row.remarks || "" };
+          const uid = Number(row.user_id); // normalise to number key
+          const checks = row.checks || {};
+          console.log("[loadData] row — user_id:", uid, "(type:", typeof uid, ") month_key:", row.month_key, "checks:", checks);
+          if (!map[uid]) map[uid] = {};
+          map[uid][row.month_key] = { checks, remarks: row.remarks || "" };
         }
         setChecklists(map);
+      } else {
+        console.warn("[loadData] No checklist data returned from Supabase.");
       }
       setLoading(false);
     }
@@ -950,7 +958,7 @@ function ChecklistPage({ currentUser, users, checklists, setChecklists, isAdmin 
   const [selectedMonth, setSelectedMonth] = useState(monthKey);
   const [tab, setTab] = useState("fill");
 
-  const viewUserId = isAdmin ? selectedUser : currentUser.id;
+  const viewUserId = Number(isAdmin ? selectedUser : currentUser.id);
   const cl = checklists[viewUserId]?.[selectedMonth] || { checks: {}, remarks: "" };
   const isCurrentUserMonth = viewUserId === currentUser.id && selectedMonth === monthKey;
   const canEdit = isAdmin || isCurrentUserMonth;
@@ -985,11 +993,13 @@ function ChecklistPage({ currentUser, users, checklists, setChecklists, isAdmin 
     supabase
       .from("checklist_submissions")
       .upsert(
-        { user_id: viewUserId, month_key: selectedMonth, checks: newChecks, remarks: cl.remarks || "" },
+        { user_id: Number(viewUserId), month_key: selectedMonth, checks: newChecks, remarks: cl.remarks || "" },
         { onConflict: "user_id,month_key" }
       )
-      .then(({ error }) => {
+      .select()
+      .then(({ data, error }) => {
         if (error) console.error("[toggle] Supabase save error:", error);
+        else console.log("[toggle] saved ok, returned row:", data);
       });
   }
 
@@ -1000,7 +1010,7 @@ function ChecklistPage({ currentUser, users, checklists, setChecklists, isAdmin 
     await supabase
       .from("checklist_submissions")
       .upsert(
-        { user_id: viewUserId, month_key: selectedMonth, checks: latestChecks, remarks: localRemarks },
+        { user_id: Number(viewUserId), month_key: selectedMonth, checks: latestChecks, remarks: localRemarks },
         { onConflict: "user_id,month_key" }
       );
     // Use functional update so we never overwrite concurrent checkbox toggles
@@ -1016,12 +1026,19 @@ function ChecklistPage({ currentUser, users, checklists, setChecklists, isAdmin 
   async function handleSaveSubmit() {
     setSaveStatus("saving");
     const latestChecks = checklistsRef.current[viewUserId]?.[selectedMonth]?.checks || {};
-    const { error } = await supabase
+    const uid = Number(viewUserId);
+    const payload = { user_id: uid, month_key: selectedMonth, checks: latestChecks, remarks: localRemarks };
+    // ── DEBUG ──────────────────────────────────────────────────────────────
+    console.log("[handleSaveSubmit] month_key:", selectedMonth);
+    console.log("[handleSaveSubmit] user_id:", uid, "(original viewUserId:", viewUserId, typeof viewUserId, ")");
+    console.log("[handleSaveSubmit] checks being saved:", latestChecks);
+    console.log("[handleSaveSubmit] full payload:", payload);
+    // ──────────────────────────────────────────────────────────────────────
+    const { data, error } = await supabase
       .from("checklist_submissions")
-      .upsert(
-        { user_id: viewUserId, month_key: selectedMonth, checks: latestChecks, remarks: localRemarks },
-        { onConflict: "user_id,month_key" }
-      );
+      .upsert(payload, { onConflict: "user_id,month_key" })
+      .select();
+    console.log("[handleSaveSubmit] Supabase response — data:", data, "error:", error);
     if (error) {
       console.error("[handleSaveSubmit] error:", error);
       setSaveStatus("error");
