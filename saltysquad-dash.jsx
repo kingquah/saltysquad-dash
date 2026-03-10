@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { supabase } from "./supabase";
 
 // ── STATIC / CONFIG DATA ──────────────────────────────────────────────────────
@@ -100,9 +100,9 @@ function mapSales(row) {
   return {
     id: row.id,
     month: row.month,
-    year: row.year,
-    target: row.target,
-    achieved: row.achieved,
+    year: Number(row.year),
+    target: Number(row.target ?? 0),
+    achieved: Number(row.achieved ?? 0),
   };
 }
 
@@ -169,6 +169,8 @@ export default function App() {
         supabase.from("checklist_submissions").select("*"),
       ]);
       if (cancelled) return;
+
+      console.log("[loadData] salesRes data:", salesRes.data, "error:", salesRes.error);
 
       if (usersRes.data) setUsers(usersRes.data.map(mapUser));
       if (leaveRes.data) setLeaveRequests(leaveRes.data.map(mapLeave));
@@ -953,46 +955,91 @@ function ChecklistPage({ currentUser, users, checklists, setChecklists, isAdmin 
   const isCurrentUserMonth = viewUserId === currentUser.id && selectedMonth === monthKey;
   const canEdit = isAdmin || isCurrentUserMonth;
 
+  // Ref always points to latest checklists — prevents stale closure in async functions
+  const checklistsRef = useRef(checklists);
+  checklistsRef.current = checklists;
+
   // Local remarks state to avoid a DB write on every keystroke
   const [localRemarks, setLocalRemarks] = useState(cl.remarks || "");
   useEffect(() => { setLocalRemarks(cl.remarks || ""); }, [viewUserId, selectedMonth, cl.remarks]);
 
-  async function toggle(id) {
+  // Save & Submit state
+  const [saveStatus, setSaveStatus] = useState(null); // null | "saving" | "saved" | "error"
+  const [lastSaved, setLastSaved] = useState(null);   // time string from last in-session save
+  // Reset save status whenever user or month changes
+  useEffect(() => { setSaveStatus(null); setLastSaved(null); }, [viewUserId, selectedMonth]);
+
+  function toggle(id) {
     if (!canEdit) return;
-    const newChecks = { ...cl.checks, [id]: !cl.checks[id] };
-    // Optimistic update — checkbox responds immediately
+    // Compute newChecks from current state — pure, no side-effects in updater
+    const currentChecks = cl.checks || {};
+    const newChecks = { ...currentChecks, [id]: !currentChecks[id] };
     setChecklists(prev => ({
       ...prev,
-      [viewUserId]: { ...(prev[viewUserId] || {}), [selectedMonth]: { ...cl, checks: newChecks } },
+      [viewUserId]: {
+        ...(prev[viewUserId] || {}),
+        [selectedMonth]: { ...(prev[viewUserId]?.[selectedMonth] || { checks: {}, remarks: "" }), checks: newChecks },
+      },
     }));
-    const { error } = await supabase
+    // Save to Supabase in the background — no state update on complete
+    supabase
       .from("checklist_submissions")
       .upsert(
         { user_id: viewUserId, month_key: selectedMonth, checks: newChecks, remarks: cl.remarks || "" },
         { onConflict: "user_id,month_key" }
-      );
-    if (error) {
-      // Revert on DB failure
-      setChecklists(prev => ({
-        ...prev,
-        [viewUserId]: { ...(prev[viewUserId] || {}), [selectedMonth]: cl },
-      }));
-      console.error("[toggle] Supabase error:", error);
-    }
+      )
+      .then(({ error }) => {
+        if (error) console.error("[toggle] Supabase save error:", error);
+      });
   }
 
   async function saveRemarks() {
     if (localRemarks === (cl.remarks || "")) return;
+    // Read latest checks from ref to avoid overwriting optimistic checkbox updates
+    const latestChecks = checklistsRef.current[viewUserId]?.[selectedMonth]?.checks || {};
     await supabase
       .from("checklist_submissions")
       .upsert(
-        { user_id: viewUserId, month_key: selectedMonth, checks: cl.checks || {}, remarks: localRemarks },
+        { user_id: viewUserId, month_key: selectedMonth, checks: latestChecks, remarks: localRemarks },
         { onConflict: "user_id,month_key" }
       );
+    // Use functional update so we never overwrite concurrent checkbox toggles
     setChecklists(prev => ({
       ...prev,
-      [viewUserId]: { ...(prev[viewUserId] || {}), [selectedMonth]: { ...cl, remarks: localRemarks } },
+      [viewUserId]: {
+        ...(prev[viewUserId] || {}),
+        [selectedMonth]: { ...(prev[viewUserId]?.[selectedMonth] || { checks: {}, remarks: "" }), remarks: localRemarks },
+      },
     }));
+  }
+
+  async function handleSaveSubmit() {
+    setSaveStatus("saving");
+    const latestChecks = checklistsRef.current[viewUserId]?.[selectedMonth]?.checks || {};
+    const { error } = await supabase
+      .from("checklist_submissions")
+      .upsert(
+        { user_id: viewUserId, month_key: selectedMonth, checks: latestChecks, remarks: localRemarks },
+        { onConflict: "user_id,month_key" }
+      );
+    if (error) {
+      console.error("[handleSaveSubmit] error:", error);
+      setSaveStatus("error");
+      setTimeout(() => setSaveStatus(null), 3000);
+      return;
+    }
+    // Persist remarks into shared state so score card reflects them too
+    setChecklists(prev => ({
+      ...prev,
+      [viewUserId]: {
+        ...(prev[viewUserId] || {}),
+        [selectedMonth]: { ...(prev[viewUserId]?.[selectedMonth] || { checks: {}, remarks: "" }), checks: latestChecks, remarks: localRemarks },
+      },
+    }));
+    const t = new Date();
+    setLastSaved(t.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }));
+    setSaveStatus("saved");
+    setTimeout(() => setSaveStatus(null), 4000);
   }
 
   // Build month options (12 for admin, 6 for staff)
@@ -1061,6 +1108,43 @@ function ChecklistPage({ currentUser, users, checklists, setChecklists, isAdmin 
                 style={{ ...inputStyle, resize: "vertical", width: "100%", boxSizing: "border-box" }}
               />
             </div>
+
+            {canEdit && (() => {
+              const monthLabel = monthOptions.find(m => m.key === selectedMonth)?.label || selectedMonth;
+              const staffName = users.find(u => u.id === viewUserId)?.name;
+              const isAdminOnBehalf = isAdmin && viewUserId !== currentUser.id;
+              const successMsg = isAdminOnBehalf
+                ? `✅ Saved for ${staffName} — ${monthLabel}`
+                : `✅ Checklist saved for ${monthLabel}!`;
+              return (
+                <div style={{ marginTop: 8 }}>
+                  <button
+                    onClick={handleSaveSubmit}
+                    disabled={score === 0 || saveStatus === "saving"}
+                    style={{
+                      width: "100%", padding: "13px 20px", borderRadius: 12, border: "none", cursor: score === 0 || saveStatus === "saving" ? "not-allowed" : "pointer",
+                      background: score === 0 ? "#ede8e3" : saveStatus === "saved" ? "#2ecc71" : saveStatus === "error" ? "#e74c3c" : "#c4704a",
+                      color: score === 0 ? "#b0a09a" : "#fff", fontSize: 15, fontWeight: 700,
+                      transition: "background 0.2s, transform 0.1s",
+                      boxShadow: score > 0 && saveStatus !== "saving" ? "0 3px 12px rgba(196,112,74,0.3)" : "none",
+                    }}
+                    onMouseEnter={e => { if (score > 0 && saveStatus !== "saving") e.currentTarget.style.transform = "translateY(-1px)"; }}
+                    onMouseLeave={e => { e.currentTarget.style.transform = "none"; }}
+                  >
+                    {saveStatus === "saving" ? "Saving…"
+                      : saveStatus === "saved" ? successMsg
+                      : saveStatus === "error" ? "⚠️ Save failed — try again"
+                      : score === 0 ? "Tick at least one item to save"
+                      : "💾 Save & Submit"}
+                  </button>
+                  {(lastSaved || checklists[viewUserId]?.[selectedMonth]) && saveStatus !== "saved" && (
+                    <div style={{ textAlign: "center", fontSize: 12, color: "#9a8a7a", marginTop: 8 }}>
+                      {lastSaved ? `Last saved: ${lastSaved}` : "Previously submitted — changes save instantly"}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
           </div>
 
           {/* Score card */}
@@ -1144,6 +1228,8 @@ function ChecklistPage({ currentUser, users, checklists, setChecklists, isAdmin 
 const MONTH_ORDER = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 
 function SalesPage({ sales, setSales, isAdmin }) {
+  console.log("[SalesPage] rendering — raw sales prop length:", sales.length, sales);
+
   const [editing, setEditing] = useState(null);
   const [editVals, setEditVals] = useState({});
 
@@ -1159,7 +1245,7 @@ function SalesPage({ sales, setSales, isAdmin }) {
     .filter(s => { if (seen.has(s.month)) return false; seen.add(s.month); return true; })
     .sort((a, b) => MONTH_ORDER.indexOf(a.month) - MONTH_ORDER.indexOf(b.month));
 
-  console.log("SalesPage year:", displayYear, "rows:", dedupedSales.length, dedupedSales.map(s => s.month));
+  console.log("[SalesPage] displayYear:", displayYear, "yearsInData:", yearsInData, "rows after filter:", dedupedSales.length);
 
   function startEdit(month) {
     const idx = dedupedSales.findIndex(s => s.month === month);
@@ -1189,8 +1275,20 @@ function SalesPage({ sales, setSales, isAdmin }) {
       <h2 style={{ fontSize: 22, fontWeight: 700, color: "#3a2a1a", marginBottom: 6 }}>📊 Team Sales Targets</h2>
       <p style={{ color: "#9a8a7a", fontSize: 13, marginBottom: 24 }}>Monthly team sales performance. {isAdmin ? "Click a row to edit targets and achieved scores." : "View-only."}</p>
 
+      {dedupedSales.length === 0 && (
+        <div style={{ background: "#fff", borderRadius: 16, padding: "40px 24px", boxShadow: "0 2px 12px rgba(0,0,0,0.06)", textAlign: "center", color: "#9a8a7a" }}>
+          <div style={{ fontSize: 36, marginBottom: 12 }}>📭</div>
+          <div style={{ fontSize: 16, fontWeight: 700, color: "#5a4a3a", marginBottom: 8 }}>No sales data found for {displayYear}</div>
+          <div style={{ fontSize: 13 }}>
+            {sales.length === 0
+              ? "No rows returned from the sales_targets table. Check your Supabase data and RLS policies."
+              : `Data exists for years: ${yearsInData.join(", ")} — but none match ${displayYear}.`}
+          </div>
+        </div>
+      )}
+
       {/* Chart */}
-      <div style={{ background: "#fff", borderRadius: 16, padding: "20px 16px 16px", boxShadow: "0 2px 12px rgba(0,0,0,0.06)", marginBottom: 24 }}>
+      {dedupedSales.length > 0 && <div style={{ background: "#fff", borderRadius: 16, padding: "20px 16px 16px", boxShadow: "0 2px 12px rgba(0,0,0,0.06)", marginBottom: 24 }}>
         <div style={{ fontSize: 13, fontWeight: 700, color: "#9a8a7a", marginBottom: 12 }}>Visual Overview</div>
         <div style={{ display: "flex", alignItems: "flex-end", gap: 2, height: BAR_HEIGHT + 28, width: "100%" }}>
           {dedupedSales.map(s => {
@@ -1219,10 +1317,10 @@ function SalesPage({ sales, setSales, isAdmin }) {
           <span style={{ display: "flex", alignItems: "center", gap: 4 }}><span style={{ display: "inline-block", width: 10, height: 10, background: "#c4704a", borderRadius: 2 }} /> Achieved</span>
           <span style={{ display: "flex", alignItems: "center", gap: 4 }}><span style={{ display: "inline-block", width: 10, height: 10, background: "#2ecc71", borderRadius: 2 }} /> Hit Target</span>
         </div>
-      </div>
+      </div>}
 
       {/* Table */}
-      <div style={{ background: "#fff", borderRadius: 16, padding: "24px", boxShadow: "0 2px 12px rgba(0,0,0,0.06)" }}>
+      {dedupedSales.length > 0 && <div style={{ background: "#fff", borderRadius: 16, padding: "24px", boxShadow: "0 2px 12px rgba(0,0,0,0.06)" }}>
         {dedupedSales.map(s => {
           const achieved_pct = s.target > 0 && s.achieved > 0 ? Math.round((s.achieved / s.target) * 100) : 0;
           const hit = s.achieved >= s.target && s.achieved > 0;
@@ -1254,7 +1352,7 @@ function SalesPage({ sales, setSales, isAdmin }) {
             </div>
           );
         })}
-      </div>
+      </div>}
     </div>
   );
 }
