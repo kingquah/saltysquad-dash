@@ -619,11 +619,13 @@ function TeamIntegritySection({ staffList, prevMonthKey, prevMonthName, prevYear
 
       const map = {};
       (data || []).forEach(s => {
+        const total  = Object.keys(s.checks || {}).length;
         const ticked = Object.values(s.checks || {}).filter(Boolean).length;
-        // Force numeric key — Supabase may return user_id as string or number
-        const uid = Number(s.user_id);
-        console.log(`  building scoreMap: uid=${uid} (from "${s.user_id}"), score=${Math.round((ticked / 17) * 100)}%`);
-        map[uid] = Math.round((ticked / 17) * 100);
+        const uid    = Number(s.user_id);
+        // Use actual key count as denominator; cap at 100 in case of extra keys
+        const score  = total > 0 ? Math.min(100, Math.round((ticked / total) * 100)) : 0;
+        console.log(`  building scoreMap: uid=${uid}, ticked=${ticked}/${total}, score=${score}%`);
+        map[uid] = score;
       });
 
       console.log("scoreMap built:", JSON.stringify(map));
