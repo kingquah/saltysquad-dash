@@ -619,12 +619,18 @@ function TeamIntegritySection({ staffList, prevMonthKey, prevMonthName, prevYear
 
       const map = {};
       (data || []).forEach(s => {
-        const total  = Object.keys(s.checks || {}).length;
-        const ticked = Object.values(s.checks || {}).filter(Boolean).length;
+        const checks = s.checks || {};
         const uid    = Number(s.user_id);
-        // Use actual key count as denominator; cap at 100 in case of extra keys
-        const score  = total > 0 ? Math.min(100, Math.round((ticked / total) * 100)) : 0;
-        console.log(`  building scoreMap: uid=${uid}, ticked=${ticked}/${total}, score=${score}%`);
+
+        // Log raw keys so we can see exactly what's stored in Supabase
+        console.log(`  raw checks keys for uid=${uid}:`, Object.keys(checks));
+
+        // Only count ticks on canonical item IDs (from the current checklist form).
+        // This ignores stale/renamed keys from old submissions so scores are
+        // always comparable. Denominator is always TOTAL_ITEMS (currently 17).
+        const ticked = ALL_ITEM_IDS.filter(id => checks[id] === true).length;
+        const score  = Math.min(100, Math.round((ticked / TOTAL_ITEMS) * 100));
+        console.log(`  uid=${uid}: ${ticked}/${TOTAL_ITEMS} canonical items ticked → ${score}%`);
         map[uid] = score;
       });
 
