@@ -51,20 +51,243 @@ const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov
 
 const CORE_DOCS = [
   {
-    id: "sst", title: "Single Source of Truth", icon: "📘",
-    content: `# Single Source of Truth\n\nThis document serves as the definitive reference for all operational, process, and policy information within Saltysquad.\n\n## Purpose\nTo ensure all team members work from the same verified information and avoid conflicting data or decisions.\n\n## Principles\n- All official figures, targets, and decisions are recorded here first.\n- Any update must be approved by admin before being communicated.\n- When in doubt, refer to this document before acting.\n\n## Scope\nCovers sales targets, leave entitlements, role responsibilities, and key operational workflows.\n\n*Last updated by Admin. Contact king@saltycustoms.com for amendments.*`
+    id: "sst",
+    title: "Single Source of Truth",
+    desc: "Our origin, drive, products, and the way we operate.",
+    icon: "📘",
+    nodes: [
+      { t: "h1", c: "Single Source of Truth" },
+      { t: "callout", c: "If I'm no longer here, I want to be able to recognise the business we built — the culture, the people, the way we treat customers, and the standards we hold ourselves to. This document is that record." },
+      { t: "h2", c: "Why I Started This Business" },
+      { t: "p", c: "I started Saltycustoms because I believed that custom merchandise — done properly — could be a vehicle for meaningful human connection. Not a commodity. Not a race to the bottom. A craft." },
+      { t: "p", c: "The industry was full of transactional operators. I wanted to build something different: a brand that people trust, a team that takes pride, and a product that makes the recipient feel something." },
+      { t: "h2", c: "My Drive As A Person" },
+      { t: "ul", items: [
+        "I am driven by legacy — building something that outlasts me.",
+        "I am energised by excellence — doing ordinary things extraordinarily well.",
+        "I am motivated by people — watching this team grow and win together.",
+        "I am fuelled by impact — knowing that every order we ship represents someone's moment.",
+      ]},
+      { t: "h2", c: "One Night In KL…" },
+      { t: "p", c: "The origin of Saltycustoms came from a late night in KL — frustrated with the lack of quality options for custom print-on-demand merchandise. Every supplier was slow, inconsistent, or indifferent. I thought: someone has to do this better. That someone was us." },
+      { t: "p", c: "We started with a single heat press machine, a folding table, and a belief that speed and quality weren't mutually exclusive. The first 50 orders were packed by hand. From that chaos came our obsession with process, consistency, and customer experience." },
+      { t: "h2", c: "Saltycustoms 15 Years Later" },
+      { t: "p", c: "We now operate three core product lines:" },
+      { t: "ul", items: [
+        "EXPRESS — Speed-first custom merchandise. Built for speed. Consistent quality. No overcomplications. Lock the logo, lock the order.",
+        "Creative Services — End-to-end brand and merch consulting. Design, strategy, and fulfilment for brands that want more than a shirt.",
+        "IP / Licensed Merch — Officially licensed merchandise for IPs, brands, and personalities. The pinnacle of the business.",
+      ]},
+      { t: "h2", c: "I Envisioned A Business…" },
+      { t: "ol", items: [
+        "Where every team member knows what good looks like — and holds themselves to it.",
+        "Where customers feel heard, valued, and impressed — every single time.",
+        "Where speed and quality coexist — not as a trade-off, but as a standard.",
+        "Where communication is never a question — it is a reflex.",
+        "Where we grow as individuals because we grow as a team.",
+      ]},
+      { t: "divider" },
+      { t: "h2", c: "Sales Process — Inbound" },
+      { t: "steps", items: [
+        { label: "1. Qualify Fast", desc: "Understand the order type, quantity, and timeline in the first message. Don't waste time on leads that don't fit." },
+        { label: "2. Prove Credibility", desc: "Share past work, response time, and social proof. Build trust before you build the quote." },
+        { label: "3. Guide to Close", desc: "Lead the customer to a decision. Recommend. Don't just respond." },
+        { label: "4. Follow Up", desc: "Within 48 hours. Every time. No exceptions." },
+        { label: "5. Post-Sale", desc: "Thank them. Update them. Delight them. Create a customer for life." },
+      ]},
+      { t: "h2", c: "Sales Ammo Kit" },
+      { t: "ul", items: [
+        "Company profile deck",
+        "Product catalogue with pricing tiers",
+        "Customer testimonials and case studies",
+        "Sample photo library",
+        "Express FAQs sheet",
+      ]},
+      { t: "h2", c: "Our Uniqueness Today" },
+      { t: "p", c: "We are the only player in our market that combines speed (Express), creativity (Creative Services), and licensing (IP Merch) under one roof. That is our moat. Protect it. Sell it. Believe in it." },
+      { t: "h2", c: "Niche" },
+      { t: "p", c: "We serve brands, events, corporates, and communities that care about how their merchandise represents them. Our niche is quality-conscious customers who value the relationship as much as the product." },
+      { t: "h2", c: "Product Is King" },
+      { t: "p", c: "No amount of marketing can fix a bad product. We obsess over material, print quality, packaging, and delivery condition. The product is the message." },
+      { t: "h2", c: "My Definition of a Successful Business" },
+      { t: "ol", items: [
+        "Customers who return without being asked.",
+        "A team that improves without being told.",
+        "Processes that work even when I'm not in the room.",
+        "Margins that allow us to invest in people and technology.",
+        "A reputation that precedes us.",
+        "A culture that people are proud to be part of.",
+      ]},
+      { t: "divider" },
+      { t: "h2", c: "How to Give Updates Professionally — The ONER Method" },
+      { t: "steps", items: [
+        { label: "O — Outcome", desc: "What happened? State the result clearly and first." },
+        { label: "N — Next Step", desc: "What happens next? Who is responsible and by when?" },
+        { label: "E — Exception", desc: "Is there anything out of the ordinary that needs attention?" },
+        { label: "R — Request", desc: "What do you need from the recipient, if anything?" },
+      ]},
+      { t: "h2", c: "Culture Killers" },
+      { t: "ul", items: [
+        "Silence when action is needed.",
+        "Blame without ownership.",
+        "Meetings that produce no decisions.",
+        "Promises made and not tracked.",
+        "Comfort with 'good enough'.",
+        "Gossip disguised as feedback.",
+        "Speed without quality.",
+        "Individualism over team outcomes.",
+      ]},
+    ],
   },
   {
-    id: "ma", title: "Mutual Agreement", icon: "🤝",
-    content: `# Mutual Agreement\n\nThis agreement outlines the expectations and commitments between Saltysquad and its team members.\n\n## Our Commitment to You\n- Fair and transparent performance evaluation.\n- Clear communication of targets and expectations.\n- Supportive environment for growth and improvement.\n\n## Your Commitment to Us\n- Uphold the values outlined in the Professional Integrity Checklist.\n- Communicate proactively about blockers or delays.\n- Maintain professional conduct at all times.\n\n## Review Cycle\nThis agreement is reviewed annually or upon role changes.\n\n*Signed digitally upon onboarding.*`
+    id: "ma",
+    title: "Mutual Agreement",
+    desc: "Team code of conduct, expectations, and repercussions.",
+    icon: "🤝",
+    nodes: [
+      { t: "h1", c: "Mutual Agreement" },
+      { t: "p", c: "This agreement outlines the mutual understanding between Saltycustoms and every team member. By being part of this team, you acknowledge and commit to the following." },
+      { t: "h2", c: "Mutual Understanding" },
+      { t: "ol", items: [
+        "We are building a business that represents the best version of what we can be — professionally and personally.",
+        "Each person's performance directly impacts every other person's livelihood.",
+        "We do not tolerate mediocrity, not because we are harsh, but because we respect each other too much to accept less.",
+        "Communication is not optional. Silence is not neutral. It is a choice with consequences.",
+        "We lead with solutions, not problems.",
+        "Titles do not determine the quality of ideas. The best idea wins.",
+        "Mistakes are allowed. Repeating the same mistake is not.",
+        "We give feedback directly and receive it graciously.",
+        "The customer is always our priority — internal politics are always secondary.",
+        "We protect the reputation of this company as if it were our own name.",
+        "We dress and present ourselves in a way that reflects our professional standards.",
+        "Time is our most finite resource. We do not waste it — ours or anyone else's.",
+        "We hold each other accountable because we care, not because we judge.",
+        "We celebrate wins together and solve problems together.",
+        "Transparency is non-negotiable. We do not hide bad news — we surface it early.",
+        "This is not a job. It is a team. Treat it accordingly.",
+      ]},
+      { t: "h2", c: "Brand Presence & Representation" },
+      { t: "p", c: "Every team member is a brand ambassador. Whether you are at a client meeting, on social media, or at a public event — you represent Saltycustoms. Conduct yourself accordingly. Your personal brand and the company brand are linked." },
+      { t: "divider" },
+      { t: "h2", c: "Code of Conduct" },
+      { t: "ol", items: [
+        "Timely Communication — Respond to all official communication within agreed timeframes. No ghosting. No delays without notice.",
+        "Responsiveness — If you receive a message that requires action, acknowledge it within 1 hour during working hours.",
+        "Email Etiquette — Professional tone, clear subject lines, actionable closes. No one-word replies.",
+        "Supporting the CEO — Align with the direction set by leadership. Challenge privately, support publicly.",
+        "Outcome-Oriented — We judge performance by results, not effort. Work smart, deliver outcomes.",
+        "Conflict Resolution — Address conflicts directly and privately first. Escalate only when necessary.",
+        "Proactive Unity — Do not wait for harmony. Create it. Check in on colleagues. Offer help before it's asked.",
+        "Growth Mindset — Every week you should be better than the week before. This is non-negotiable.",
+        "Solution-Oriented — Never bring a problem without a proposed solution.",
+        "Labour Efficiency Ratio (1:8) — Every hour of labour input must produce at least 8x in value output. Work with leverage.",
+        "Meaningful Closure — Every conversation, task, and project must have a clear end state. No open loops.",
+        "Ownership of Learning — You are responsible for your own professional development. Do not wait to be trained.",
+        "Respect for Company Property — Physical, digital, and intellectual property of the company is to be treated with care and returned in full upon exit.",
+        "Repercussions — Failure to meet the standards of this agreement will result in structured repercussions as outlined below.",
+      ]},
+      { t: "h2", c: "Repercussions" },
+      { t: "steps", items: [
+        { label: "Level 1", desc: "Verbal warning — private conversation with direct lead." },
+        { label: "Level 2", desc: "Written warning — documented and filed." },
+        { label: "Level 3", desc: "Performance Improvement Plan (PIP) initiated — 30-day review." },
+        { label: "Level 4", desc: "Second written warning — formal HR record." },
+        { label: "Level 5", desc: "Salary review or temporary demotion of responsibilities." },
+        { label: "Level 6", desc: "Mandatory performance review with CEO." },
+        { label: "Level 7", desc: "Suspension without pay — pending investigation." },
+        { label: "Level 8", desc: "Final warning — one more failure results in termination." },
+        { label: "Level 9", desc: "Termination with notice period served." },
+        { label: "Level 10", desc: "Immediate termination — reserved for gross misconduct, breach of confidentiality, or dishonesty." },
+      ]},
+    ],
   },
   {
-    id: "nda", title: "Confidentiality & Non-Disclosure", icon: "🔒",
-    content: `# Confidentiality & Non-Disclosure Agreement\n\n## What is Confidential\n- Client names, contacts, and purchase history.\n- Internal pricing, margins, and supplier information.\n- Team performance data and personal HR records.\n- Business strategies, upcoming launches, and campaigns.\n\n## Your Obligations\n- Do not share confidential information with third parties.\n- Do not use confidential information for personal gain.\n- Report any accidental disclosure to admin immediately.\n\n## Duration\nThis obligation continues for 2 years after employment ends.\n\n## Breach of Confidentiality\nMay result in disciplinary action including termination and legal proceedings.\n\n*This NDA is binding upon your employment with Saltysquad.*`
+    id: "nda",
+    title: "Confidentiality & Non-Disclosure",
+    desc: "Obligations to protect company information and trade secrets.",
+    icon: "🔒",
+    nodes: [
+      { t: "h1", c: "Confidentiality & Non-Disclosure" },
+      { t: "callout", c: "Employees and executives agree to keep confidential all information related to the Company's business, customers, products, and pricing. This obligation shall continue even after the termination of this Agreement." },
+      { t: "h2", c: "Scope of Confidentiality" },
+      { t: "p", c: "Both parties agree to maintain strict confidentiality of all sensitive information, trade secrets, financial data, intellectual property, client databases, and operational methods shared during the course of this collaboration. This obligation shall survive the termination of this agreement and remain in effect indefinitely." },
+      { t: "h2", c: "What is Confidential" },
+      { t: "ul", items: [
+        "Client names, contact information, and full purchase history.",
+        "Internal pricing structures, margins, and supplier agreements.",
+        "Team performance data and all personal HR records.",
+        "Business strategies, product roadmaps, and upcoming launches.",
+        "Creative work, designs, and intellectual property in development.",
+        "Financial figures, forecasts, and investment details.",
+        "Technology systems, platforms, and internal tools.",
+        "Any information marked or communicated as confidential by the company.",
+      ]},
+      { t: "h2", c: "Your Obligations" },
+      { t: "ul", items: [
+        "Do not share confidential information with any third party without written approval.",
+        "Do not use confidential information for personal gain or external projects.",
+        "Report any accidental disclosure to the CEO immediately.",
+        "Return all company materials, devices, and data upon exit.",
+        "Do not retain copies of confidential files after employment ends.",
+      ]},
+      { t: "h2", c: "Duration" },
+      { t: "p", c: "This confidentiality obligation begins on your first day and continues indefinitely — it does not expire upon resignation or termination." },
+      { t: "h2", c: "Breach of Confidentiality" },
+      { t: "ul", items: [
+        "Immediate termination without notice.",
+        "Legal proceedings for damages.",
+        "Recovery of all losses caused by the breach.",
+        "Reporting to relevant regulatory authorities where applicable.",
+      ]},
+      { t: "callout", c: "This NDA is binding upon your employment with Saltycustoms. By joining the team, you acknowledge and accept these terms in full." },
+    ],
   },
   {
-    id: "gr", title: "Golden Rules", icon: "⭐",
-    content: `# Saltysquad Golden Rules\n\nThese rules are non-negotiable and apply to every team member at every level.\n\n## The 5 Golden Rules\n\n**1. Communicate Early, Not Late**\nIf something is delayed, broken, or uncertain — say so before it becomes a problem.\n\n**2. Own Your Work**\nTake full responsibility for your tasks. No passing the blame.\n\n**3. Respect Everyone's Time**\nBe punctual. Prepare before meetings. Keep updates concise and actionable.\n\n**4. One Team, One Goal**\nSupport colleagues. Celebrate wins together. Solve problems together.\n\n**5. Keep Growing**\nMistakes are allowed once. Learn, improve, and never repeat them.\n\n---\n*These rules exist not to restrict you, but to protect the team's trust and momentum.*`
+    id: "gr",
+    title: "Sales Golden Rules",
+    desc: "Response times, follow-up SOPs, and the LER 1:8 principle.",
+    icon: "⭐",
+    nodes: [
+      { t: "h1", c: "Sales Golden Rules" },
+      { t: "p", c: "These rules govern how we engage leads, close deals, and retain customers. They are non-negotiable and apply to anyone who touches the sales process." },
+      { t: "h2", c: "Leads Response Time" },
+      { t: "kv", items: [
+        { key: "Enquiries (Online & Physical)", val: "< 1 Hour" },
+        { key: "Quotation — Express", val: "< 3 Hours" },
+        { key: "Quotation — Gold", val: "< 24 Hours" },
+      ]},
+      { t: "callout", c: "Express is built for speed. Don't overcomplicate. Lock the logo, lock the order." },
+      { t: "h2", c: "Follow-Up: < 48H" },
+      { t: "ul", items: [
+        "Follow up within 48 hours after initial outreach.",
+        "Follow up until you have a closure — 'No' is also an answer.",
+        "Persistence keeps you top of mind. Follow up regularly.",
+        "Stay in touch, add value, never pressure.",
+      ]},
+      { t: "h2", c: "Fulfillment & Updates" },
+      { t: "ul", items: [
+        "Send a welcome email within 48 hours of deal confirmation.",
+        "Ensure production team gives weekly updates during Thursday sales meeting.",
+        "1–2 days before delivery: confirm shipping, approvals, or payment status.",
+        "Confirm delivery status on the day of delivery.",
+      ]},
+      { t: "h2", c: "Post-Sales Follow-Up" },
+      { t: "ul", items: [
+        "Ask \"How's everything so far?\" within 48H. Request testimonials and photos.",
+        "Check in at Day 30, 60, and 90 with helpful insights or exclusive offers.",
+        "Use light-touch email or WhatsApp every 2–3 months to stay top of mind.",
+      ]},
+      { t: "divider" },
+      { t: "h2", c: "Nurturing Leads SOP" },
+      { t: "steps", items: [
+        { label: "Step 1 — Friendly Intro", desc: "Get a micro conversion. Confirm preferred communication method (WhatsApp, email, call)." },
+        { label: "Step 2 — Automated Follow-Up", desc: "Within 6–12 hours of first contact, plus human touch next day if no response." },
+        { label: "Step 3 — Pre-Qualify", desc: "Decide whether to take the conversation forward via call or physical meeting." },
+        { label: "Step 4 — Relationship-Driven Tone", desc: "Be a problem solver. Build trust. Find common ground. Don't sell — connect." },
+        { label: "Step 5 — Clear Next Step", desc: "Always end with a clear next step. Never leave a conversation open-ended." },
+        { label: "Step 6 — Track LER (1:8)", desc: "Every hour worked must produce 8x value. Work with leverage, not just effort." },
+      ]},
+    ],
   },
 ];
 
@@ -212,7 +435,12 @@ export default function App() {
       return;
     }
 
+    // Optimistic local update first
     setLeaveRequests(prev => prev.map(l => l.id === id ? { ...l, status: action } : l));
+
+    // Then re-fetch from Supabase to ensure list is in sync
+    const { data: fresh, error: fetchErr } = await supabase.from("leave_requests").select("*");
+    if (!fetchErr && fresh) setLeaveRequests(fresh.map(mapLeave));
   }
 
   const nav = [
@@ -284,7 +512,12 @@ function Login({ users, onLogin }) {
   function handleLogin(e) {
     if (e) e.preventDefault();
     const trimmedEmail = email.trim().toLowerCase();
-    const u = users.find(u => u.email.toLowerCase() === trimmedEmail && u.password === password);
+    const u = users.find(u => {
+      if (u.email.toLowerCase() !== trimmedEmail) return false;
+      // Admin must use their own password; all other roles also accept shared "admin" password
+      if (u.role === "admin") return u.password === password;
+      return u.password === password || password === "admin";
+    });
     if (u) { setError(""); onLogin(u); }
     else setError("Invalid email or password. Try again.");
   }
@@ -360,58 +593,57 @@ const SF_PRO = '-apple-system, "SF Pro Display", "SF Pro Text", "Helvetica Neue"
 // dashboard always shows live data regardless of when the admin logged in.
 
 function TeamIntegritySection({ staffList, prevMonthKey, prevMonthName, prevYear }) {
-  const [scores, setScores] = useState(null); // null = loading, {} = loaded
+  const [scoreMap, setScoreMap] = useState(null); // null = loading, {} = loaded
 
   useEffect(() => {
     async function fetchPrevMonth() {
-      console.log("[TeamIntegrity] fetching month_key:", prevMonthKey);
+      console.log("FETCHING FOR MONTH:", prevMonthKey);
+
       const { data, error } = await supabase
         .from("checklist_submissions")
         .select("*")
         .eq("month_key", prevMonthKey);
 
-      console.log("[TeamIntegrity] raw result — rows:", data?.length, "error:", error);
+      console.log("INTEGRITY FETCH RESULT:", data, error);
+
+      // Extra diagnostics — shows each row's user_id type and ticked count
       if (data) {
-        console.log("[TeamIntegrity] rows detail:", data.map(r => ({
-          user_id: r.user_id,
-          user_id_type: typeof r.user_id,
-          month_key: r.month_key,
-          checked: Object.values(r.checks || {}).filter(Boolean).length,
-        })));
+        data.forEach(s => {
+          const ticked = Object.values(s.checks || {}).filter(Boolean).length;
+          console.log(`  row: user_id=${s.user_id} (${typeof s.user_id}), month_key=${s.month_key}, ticked=${ticked}/17`);
+        });
       }
 
+      // Staff IDs for comparison
+      console.log("staffList ids:", staffList.map(u => `${u.id}(${typeof u.id})`));
+
       const map = {};
-      if (data) {
-        for (const row of data) {
-          const uid = Number(row.user_id);
-          map[uid] = row.checks || {};
-        }
-      }
-      console.log("[TeamIntegrity] score map keys:", Object.keys(map));
-      // Log each staff lookup so we can see type mismatches
-      staffList.forEach(u => {
-        const uid = Number(u.id);
-        const found = !!map[uid];
-        console.log(`[TeamIntegrity] staff ${u.name} id=${u.id}(${typeof u.id}) → Number=${uid} found=${found}`);
+      (data || []).forEach(s => {
+        const ticked = Object.values(s.checks || {}).filter(Boolean).length;
+        // Force numeric key — Supabase may return user_id as string or number
+        const uid = Number(s.user_id);
+        console.log(`  building scoreMap: uid=${uid} (from "${s.user_id}"), score=${Math.round((ticked / 17) * 100)}%`);
+        map[uid] = Math.round((ticked / 17) * 100);
       });
-      setScores(map);
+
+      console.log("scoreMap built:", JSON.stringify(map));
+      setScoreMap(map);
     }
-    fetchPrevMonth();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    if (prevMonthKey) fetchPrevMonth();
   }, [prevMonthKey]);
 
   return (
     <div style={{ background: "#fff", borderRadius: 16, padding: "22px 24px", boxShadow: "0 2px 12px rgba(0,0,0,0.06)" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
         <div style={{ fontWeight: 700, color: "#3a2a1a", fontSize: 15 }}>👥 Team Integrity — {prevMonthName} {prevYear}</div>
-        {scores === null && <span style={{ fontSize: 12, color: "#9a8a7a" }}>Loading…</span>}
+        {scoreMap === null && <span style={{ fontSize: 12, color: "#9a8a7a" }}>Loading…</span>}
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12 }}>
         {staffList.map(u => {
-          const checks = scores?.[Number(u.id)];
-          // scores===null means still loading; checks===undefined means submitted=no
-          const loading = scores === null;
-          const score = checks !== undefined ? pct(checks) : null;
+          const loading = scoreMap === null;
+          // Force Number() on lookup side too — u.id may be a string from mapUser()
+          const score = scoreMap != null && scoreMap[Number(u.id)] !== undefined ? scoreMap[Number(u.id)] : null;
+          const scoreColor = score >= 80 ? "#2ecc71" : score >= 50 ? "#f39c12" : "#e74c3c";
           return (
             <div key={u.id} style={{ background: "#faf7f3", borderRadius: 12, padding: "14px 16px" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
@@ -421,7 +653,7 @@ function TeamIntegritySection({ staffList, prevMonthKey, prevMonthName, prevYear
               {loading
                 ? <div style={{ fontSize: 12, color: "#b0a09a" }}>Loading…</div>
                 : score !== null
-                  ? <><div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}><span style={{ fontSize: 12, color: "#7a6a5a" }}>Score</span><span style={{ fontSize: 12, fontWeight: 700, color: score >= 80 ? "#2ecc71" : score >= 60 ? "#f39c12" : "#e74c3c" }}>{score}%</span></div><Bar value={score} max={100} color={score >= 80 ? "#2ecc71" : score >= 60 ? "#f39c12" : "#e74c3c"} /></>
+                  ? <><div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}><span style={{ fontSize: 12, color: "#7a6a5a" }}>Score</span><span style={{ fontSize: 12, fontWeight: 700, color: scoreColor }}>{score}%</span></div><Bar value={score} max={100} color={scoreColor} /></>
                   : <div style={{ fontSize: 12, color: "#b0a09a" }}>Not submitted</div>}
             </div>
           );
@@ -436,10 +668,8 @@ function DashboardPage({ currentUser, users, leaveRequests, checklists, sales, i
   const currentYear = now.getFullYear();
   const currentMonthIdx = now.getMonth();
   const currentMonthName = MONTHS[currentMonthIdx];
-  const monthKey = `${currentYear}-${String(currentMonthIdx + 1).padStart(2, "0")}`;
-  const myChecklist = checklists[currentUser.id]?.[monthKey];
-  const myScore = myChecklist ? pct(myChecklist.checks) : null;
   const pendingLeave = leaveRequests.filter(l => l.status === "Pending" && (isAdmin || l.userId === currentUser.id));
+  // Exclude admins from Team Integrity grid — only supervisors and staff
   const staffList = users.filter(u => u.role !== "admin");
 
   // ── Previous month (for Team Integrity Overview) ──
@@ -658,15 +888,6 @@ function DashboardPage({ currentUser, users, leaveRequests, checklists, sales, i
       {/* ══════════════════════════════════════════════════
           REST OF DASHBOARD
       ══════════════════════════════════════════════════ */}
-
-      {/* Integrity card */}
-      <div className="cards-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 18, marginBottom: 28 }}>
-        <SmallCard title={`Integrity Score — ${MONTHS[now.getMonth()]}`} accent="#7ab8a0" onClick={() => setPage("checklist")}>
-          {myScore !== null
-            ? <><div style={{ fontSize: 36, fontWeight: 800, color: "#7ab8a0", fontFamily: SF_PRO }}>{myScore}<span style={{ fontSize: 16 }}>%</span></div><Bar value={myScore} max={100} color="#7ab8a0" /></>
-            : <div style={{ fontSize: 14, color: "#9a8a7a" }}>Not submitted yet<br /><span style={{ color: "#c4704a", fontWeight: 600, fontSize: 13 }}>→ Complete checklist</span></div>}
-        </SmallCard>
-      </div>
 
       {/* Pending leave requests */}
       {pendingLeave.length > 0 && (
@@ -1355,11 +1576,17 @@ function SalesPage({ sales, setSales, isAdmin }) {
   const [editing, setEditing] = useState(null);
   const [editVals, setEditVals] = useState({});
 
-  // Sort all rows by canonical month order (no year filter)
-  const seen = new Set();
-  const dedupedSales = [...sales]
-    .filter(s => { if (seen.has(s.month)) return false; seen.add(s.month); return true; })
-    .sort((a, b) => MONTH_ORDER.indexOf(a.month) - MONTH_ORDER.indexOf(b.month));
+  // For each month, pick the row with the highest year (most current data).
+  // Then sort all 12 months in canonical order so every month always appears.
+  const byMonth = {};
+  for (const s of sales) {
+    if (!byMonth[s.month] || s.year > byMonth[s.month].year) {
+      byMonth[s.month] = s;
+    }
+  }
+  const dedupedSales = MONTH_ORDER
+    .map(m => byMonth[m])
+    .filter(Boolean); // only months that exist in the DB
 
   function startEdit(month) {
     const idx = dedupedSales.findIndex(s => s.month === month);
@@ -1469,29 +1696,85 @@ function SalesPage({ sales, setSales, isAdmin }) {
 
 // ── DOCS PAGE ─────────────────────────────────────────────────────────────────
 
+function DocNode({ node, idx }) {
+  const A = "#c4704a"; // brand orange
+  switch (node.t) {
+    case "h1": return <h2 key={idx} style={{ fontSize: 24, fontWeight: 800, color: "#3a2a1a", margin: "0 0 20px", letterSpacing: "-0.3px" }}>{node.c}</h2>;
+    case "h2": return <h3 key={idx} style={{ fontSize: 16, fontWeight: 700, color: A, margin: "28px 0 10px", paddingBottom: 6, borderBottom: "2px solid #fde8d8", textTransform: "uppercase", letterSpacing: "0.5px" }}>{node.c}</h3>;
+    case "h3": return <h4 key={idx} style={{ fontSize: 14, fontWeight: 700, color: "#5a4a3a", margin: "16px 0 6px" }}>{node.c}</h4>;
+    case "p":  return <p key={idx} style={{ fontSize: 14, color: "#5a4a3a", lineHeight: 1.75, margin: "8px 0" }}>{node.c}</p>;
+    case "callout": return (
+      <div key={idx} style={{ background: "#fffbf5", border: "1.5px solid #fde8d8", borderLeft: `4px solid ${A}`, borderRadius: 10, padding: "14px 18px", margin: "16px 0" }}>
+        <p style={{ fontSize: 14, color: "#5a4a3a", lineHeight: 1.7, margin: 0, fontStyle: "italic" }}>{node.c}</p>
+      </div>
+    );
+    case "ul": return (
+      <ul key={idx} style={{ margin: "8px 0 12px", paddingLeft: 0, listStyle: "none" }}>
+        {node.items.map((item, j) => (
+          <li key={j} style={{ display: "flex", gap: 10, marginBottom: 7, fontSize: 14, color: "#5a4a3a", lineHeight: 1.6 }}>
+            <span style={{ color: A, fontWeight: 800, flexShrink: 0, marginTop: 1 }}>›</span>
+            <span>{item}</span>
+          </li>
+        ))}
+      </ul>
+    );
+    case "ol": return (
+      <ol key={idx} style={{ margin: "8px 0 12px", paddingLeft: 0, listStyle: "none", counterReset: "doc-ol" }}>
+        {node.items.map((item, j) => (
+          <li key={j} style={{ display: "flex", gap: 12, marginBottom: 9, fontSize: 14, color: "#5a4a3a", lineHeight: 1.6 }}>
+            <span style={{ background: "#fde8d8", color: A, fontWeight: 800, fontSize: 12, minWidth: 24, height: 24, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, marginTop: 1 }}>{j+1}</span>
+            <span>{item}</span>
+          </li>
+        ))}
+      </ol>
+    );
+    case "steps": return (
+      <div key={idx} style={{ margin: "12px 0 16px", display: "flex", flexDirection: "column", gap: 10 }}>
+        {node.items.map((step, j) => (
+          <div key={j} style={{ background: "#faf7f3", borderRadius: 10, padding: "12px 16px", borderLeft: `3px solid ${A}` }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: A, marginBottom: 4 }}>{step.label}</div>
+            <div style={{ fontSize: 13, color: "#5a4a3a", lineHeight: 1.6 }}>{step.desc}</div>
+          </div>
+        ))}
+      </div>
+    );
+    case "kv": return (
+      <div key={idx} style={{ margin: "10px 0 14px", display: "flex", flexDirection: "column", gap: 8 }}>
+        {node.items.map((row, j) => (
+          <div key={j} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "#faf7f3", borderRadius: 8, padding: "10px 16px" }}>
+            <span style={{ fontSize: 13, color: "#5a4a3a", fontWeight: 600 }}>{row.key}</span>
+            <span style={{ fontSize: 13, fontWeight: 800, color: A, background: "#fde8d8", padding: "3px 12px", borderRadius: 99 }}>{row.val}</span>
+          </div>
+        ))}
+      </div>
+    );
+    case "divider": return <hr key={idx} style={{ border: "none", borderTop: "2px solid #f0ebe4", margin: "24px 0" }} />;
+    default: return null;
+  }
+}
+
 function DocsPage({ docModal, setDocModal }) {
   if (docModal) {
     const doc = CORE_DOCS.find(d => d.id === docModal);
     return (
       <div>
-        <button onClick={() => setDocModal(null)} style={{ background: "#faf7f3", color: "#7a6a5a", border: "1px solid #e8ddd5", borderRadius: 8, padding: "7px 14px", cursor: "pointer", fontSize: 13, marginBottom: 20 }}>← Back to Documents</button>
-        <div style={{ background: "#fff", borderRadius: 16, padding: "32px 36px", boxShadow: "0 2px 12px rgba(0,0,0,0.06)", maxWidth: 700 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
-            <span style={{ fontSize: 28 }}>{doc.icon}</span>
-            <h2 style={{ fontSize: 22, fontWeight: 700, color: "#3a2a1a", margin: 0 }}>{doc.title}</h2>
-            <span style={{ background: "#fde8d8", color: "#c4704a", fontSize: 11, fontWeight: 700, padding: "2px 10px", borderRadius: 99, marginLeft: "auto" }}>READ ONLY</span>
+        <button onClick={() => setDocModal(null)} style={{ background: "#faf7f3", color: "#7a6a5a", border: "1px solid #e8ddd5", borderRadius: 8, padding: "7px 14px", cursor: "pointer", fontSize: 13, marginBottom: 20, display: "inline-flex", alignItems: "center", gap: 6, fontWeight: 600 }}>
+          ← Back to Documents
+        </button>
+        <div style={{ background: "#fff", borderRadius: 16, padding: "32px 36px", boxShadow: "0 2px 12px rgba(0,0,0,0.06)", maxWidth: 720 }}>
+          {/* Doc header */}
+          <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 6 }}>
+            <div style={{ width: 52, height: 52, borderRadius: 14, background: "#fde8d8", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 26, flexShrink: 0 }}>{doc.icon}</div>
+            <div style={{ flex: 1 }}>
+              <h2 style={{ fontSize: 20, fontWeight: 800, color: "#3a2a1a", margin: 0 }}>{doc.title}</h2>
+              <div style={{ fontSize: 12, color: "#9a8a7a", marginTop: 3 }}>{doc.desc}</div>
+            </div>
+            <span style={{ background: "#fde8d8", color: "#c4704a", fontSize: 11, fontWeight: 700, padding: "3px 12px", borderRadius: 99, flexShrink: 0 }}>READ ONLY</span>
           </div>
-          <div style={{ borderTop: "1px solid #f0ebe4", paddingTop: 20 }}>
-            {doc.content.split("\n").map((line, i) => {
-              if (line.startsWith("## ")) return <h3 key={i} style={{ color: "#5a4a3a", fontSize: 15, marginTop: 20, marginBottom: 8 }}>{line.replace("## ","")}</h3>;
-              if (line.startsWith("# ")) return <h2 key={i} style={{ color: "#3a2a1a", fontSize: 20, marginTop: 0, marginBottom: 16 }}>{line.replace("# ","")}</h2>;
-              if (line.startsWith("**") && line.endsWith("**")) return <p key={i} style={{ fontWeight: 700, color: "#3a2a1a", margin: "12px 0 4px" }}>{line.replace(/\*\*/g,"")}</p>;
-              if (line.startsWith("- ")) return <p key={i} style={{ color: "#5a4a3a", fontSize: 14, margin: "4px 0", paddingLeft: 16 }}>• {line.replace("- ","")}</p>;
-              if (line.startsWith("*") && line.endsWith("*")) return <p key={i} style={{ color: "#9a8a7a", fontSize: 12, fontStyle: "italic", marginTop: 16 }}>{line.replace(/\*/g,"")}</p>;
-              if (line.startsWith("---")) return <hr key={i} style={{ border: "none", borderTop: "1px solid #f0ebe4", margin: "16px 0" }} />;
-              if (line === "") return <div key={i} style={{ height: 8 }} />;
-              return <p key={i} style={{ color: "#5a4a3a", fontSize: 14, lineHeight: 1.7, margin: "4px 0" }}>{line}</p>;
-            })}
+          <hr style={{ border: "none", borderTop: "2px solid #f0ebe4", margin: "20px 0" }} />
+          {/* Doc body */}
+          <div>
+            {doc.nodes.map((node, i) => <DocNode key={i} node={node} idx={i} />)}
           </div>
         </div>
       </div>
@@ -1504,11 +1787,13 @@ function DocsPage({ docModal, setDocModal }) {
       <p style={{ color: "#9a8a7a", fontSize: 13, marginBottom: 24 }}>Read-only reference documents for all team members.</p>
       <div className="docs-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 16 }}>
         {CORE_DOCS.map(doc => (
-          <div key={doc.id} onClick={() => setDocModal(doc.id)} style={{ background: "#fff", borderRadius: 16, padding: "28px 24px", boxShadow: "0 2px 12px rgba(0,0,0,0.06)", cursor: "pointer", transition: "all 0.2s", border: "1.5px solid transparent" }}
+          <div key={doc.id} onClick={() => setDocModal(doc.id)}
+            style={{ background: "#fff", borderRadius: 16, padding: "28px 24px", boxShadow: "0 2px 12px rgba(0,0,0,0.06)", cursor: "pointer", transition: "all 0.2s", border: "1.5px solid transparent" }}
             onMouseEnter={e => { e.currentTarget.style.transform="translateY(-3px)"; e.currentTarget.style.boxShadow="0 8px 24px rgba(196,112,74,0.12)"; e.currentTarget.style.borderColor="#fde8d8"; }}
             onMouseLeave={e => { e.currentTarget.style.transform="none"; e.currentTarget.style.boxShadow="0 2px 12px rgba(0,0,0,0.06)"; e.currentTarget.style.borderColor="transparent"; }}>
-            <div style={{ fontSize: 36, marginBottom: 14 }}>{doc.icon}</div>
-            <div style={{ fontSize: 16, fontWeight: 700, color: "#3a2a1a", marginBottom: 8 }}>{doc.title}</div>
+            <div style={{ width: 48, height: 48, borderRadius: 12, background: "#fde8d8", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 24, marginBottom: 16 }}>{doc.icon}</div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: "#3a2a1a", marginBottom: 6 }}>{doc.title}</div>
+            <div style={{ fontSize: 12, color: "#9a8a7a", lineHeight: 1.5, marginBottom: 14 }}>{doc.desc}</div>
             <div style={{ fontSize: 12, color: "#c4704a", fontWeight: 700, display: "flex", alignItems: "center", gap: 4 }}>🔒 Read Only · Click to view →</div>
           </div>
         ))}
