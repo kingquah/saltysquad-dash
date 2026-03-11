@@ -1452,6 +1452,72 @@ function ChecklistPage({ currentUser, users, checklists, setChecklists, isAdmin 
 
 // ── BIRD'S EYE VIEW (Overview Tab) ───────────────────────────────────────────
 
+function RemarksModal({ cell, onClose }) {
+  if (!cell) return null;
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: "fixed", inset: 0, background: "rgba(58,42,26,0.35)",
+        display: "flex", alignItems: "center", justifyContent: "center",
+        zIndex: 1000, padding: 20,
+      }}
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{
+          background: "#f5f0e8", borderRadius: 16, padding: "28px 28px 24px",
+          maxWidth: 420, width: "100%", boxShadow: "0 8px 32px rgba(58,42,26,0.18)",
+          position: "relative",
+        }}
+      >
+        {/* Close button */}
+        <button
+          onClick={onClose}
+          style={{
+            position: "absolute", top: 14, right: 14, background: "none",
+            border: "none", cursor: "pointer", fontSize: 18, color: "#9a8a7a",
+            lineHeight: 1, padding: 4,
+          }}
+        >✕</button>
+
+        {/* Header */}
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: "#c0622a", textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 4 }}>
+            Integrity Remarks
+          </div>
+          <div style={{ fontSize: 18, fontWeight: 700, color: "#3a2a1a" }}>{cell.userName}</div>
+          <div style={{ fontSize: 13, color: "#7a6a5a", marginTop: 2 }}>{cell.monthLabel}</div>
+        </div>
+
+        {/* Score badge */}
+        <div style={{ marginBottom: 18 }}>
+          <span style={{
+            background: cell.pct >= 80 ? "#eafaf1" : cell.pct >= 60 ? "#fff4e0" : "#fdf0f0",
+            color: cell.pct >= 80 ? "#27ae60" : cell.pct >= 60 ? "#f39c12" : "#e74c3c",
+            fontWeight: 700, fontSize: 20, padding: "6px 14px", borderRadius: 10,
+          }}>{cell.pct}%</span>
+          <span style={{ fontSize: 12, color: "#9a8a7a", marginLeft: 10 }}>integrity score</span>
+        </div>
+
+        {/* Divider */}
+        <div style={{ height: 1, background: "#e8ddd5", marginBottom: 16 }} />
+
+        {/* Remarks */}
+        <div>
+          <div style={{ fontSize: 11, fontWeight: 700, color: "#c0622a", textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 8 }}>
+            Remarks
+          </div>
+          {cell.remarks
+            ? <p style={{ fontSize: 14, color: "#3a2a1a", lineHeight: 1.6, margin: 0, whiteSpace: "pre-wrap" }}>{cell.remarks}</p>
+            : <p style={{ fontSize: 14, color: "#b0a898", fontStyle: "italic", margin: 0 }}>No remarks added.</p>
+          }
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function OverviewTab({ checklists, setChecklists, staffList, monthOptions, now }) {
   const currentMonthIdx = now.getMonth(); // 0-based, e.g. 2 for March
   // Jan 2026 … current month, in chronological order
@@ -1460,6 +1526,7 @@ function OverviewTab({ checklists, setChecklists, staffList, monthOptions, now }
 
   const scrollRef = useRef(null);
   const [fetching, setFetching] = useState(false);
+  const [selectedCell, setSelectedCell] = useState(null);
 
   // Re-fetch all checklist_submissions every time this tab mounts so the
   // admin always sees the freshest data (catches saves by other users).
@@ -1510,6 +1577,7 @@ function OverviewTab({ checklists, setChecklists, staffList, monthOptions, now }
 
   return (
     <div>
+      <RemarksModal cell={selectedCell} onClose={() => setSelectedCell(null)} />
       <div style={{ background: "#fff", borderRadius: 16, padding: "24px", boxShadow: "0 2px 12px rgba(0,0,0,0.06)" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
           <div style={{ fontSize: 15, fontWeight: 700, color: "#3a2a1a" }}>Month-on-Month Integrity Scores</div>
@@ -1558,10 +1626,23 @@ function OverviewTab({ checklists, setChecklists, staffList, monthOptions, now }
                     const isCurrent = m.key === currentMonthKey;
                     const c = checklists[Number(u.id)]?.[m.key];
                     const p = c ? pct(c.checks) : null;
+                    const hasRemarks = !!(c?.remarks?.trim());
                     return (
                       <td key={m.key} style={{ textAlign: "center", padding: "12px 16px", background: isCurrent ? "#fffbf5" : "transparent" }}>
                         {p !== null
-                          ? <span style={{ background: p>=80?"#eafaf1":p>=60?"#fff4e0":"#fdf0f0", color: p>=80?"#27ae60":p>=60?"#f39c12":"#e74c3c", fontWeight: 700, fontSize: 13, padding: "4px 10px", borderRadius: 8 }}>{p}%</span>
+                          ? (
+                            <button
+                              onClick={() => setSelectedCell({ userName: u.name, monthLabel: m.label, pct: p, remarks: c?.remarks || "" })}
+                              style={{
+                                background: "none", border: "none", cursor: "pointer",
+                                display: "inline-flex", alignItems: "center", gap: 5, padding: 0,
+                              }}
+                              title="Click to view remarks"
+                            >
+                              <span style={{ background: p>=80?"#eafaf1":p>=60?"#fff4e0":"#fdf0f0", color: p>=80?"#27ae60":p>=60?"#f39c12":"#e74c3c", fontWeight: 700, fontSize: 13, padding: "4px 10px", borderRadius: 8 }}>{p}%</span>
+                              {hasRemarks && <span style={{ fontSize: 13, lineHeight: 1 }} title="Has remarks">💬</span>}
+                            </button>
+                          )
                           : <span style={{ color: "#c0b5ae" }}>—</span>}
                       </td>
                     );
