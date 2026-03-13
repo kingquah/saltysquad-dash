@@ -599,69 +599,19 @@ const SF_PRO = '-apple-system, "SF Pro Display", "SF Pro Text", "Helvetica Neue"
 // Fetches previous month's checklist_submissions fresh on every mount so the
 // dashboard always shows live data regardless of when the admin logged in.
 
-function TeamIntegritySection({ staffList, prevMonthKey, prevMonthName, prevYear }) {
-  const [scoreMap, setScoreMap] = useState(null); // null = loading, {} = loaded
-
-  useEffect(() => {
-    async function fetchPrevMonth() {
-      console.log("FETCHING FOR MONTH:", prevMonthKey);
-
-      const { data, error } = await supabase
-        .from("checklist_submissions")
-        .select("*")
-        .eq("month_key", prevMonthKey);
-
-      console.log("INTEGRITY FETCH RESULT:", data, error);
-
-      // Extra diagnostics — shows each row's user_id type and ticked count
-      if (data) {
-        data.forEach(s => {
-          const ticked = Object.values(s.checks || {}).filter(Boolean).length;
-          console.log(`  row: user_id=${s.user_id} (${typeof s.user_id}), month_key=${s.month_key}, ticked=${ticked}/17`);
-        });
-      }
-
-      // Staff IDs for comparison
-      console.log("staffList ids:", staffList.map(u => `${u.id}(${typeof u.id})`));
-
-      const map = {};
-      (data || []).forEach(s => {
-        const checks = s.checks || {};
-        const uid    = Number(s.user_id);
-
-        // Log raw keys so we can see exactly what's stored in Supabase
-        console.log(`  raw checks keys for uid=${uid}:`, Object.keys(checks));
-
-        // Only count ticks on canonical item IDs (from the current checklist form).
-        // This ignores stale/renamed keys from old submissions so scores are
-        // always comparable. Denominator is always TOTAL_ITEMS (currently 17).
-        const ticked = ALL_ITEM_IDS.filter(id => checks[id] === true).length;
-        const checklistScore = Math.min(100, Math.round((ticked / TOTAL_ITEMS) * 100));
-        const dirScore = s.director_score ?? null;
-        const score = dirScore != null
-          ? Math.round(checklistScore * 0.5 + Math.round((dirScore / 10) * 100) * 0.5)
-          : checklistScore;
-        console.log(`  uid=${uid}: ${ticked}/${TOTAL_ITEMS} canonical items ticked → checklist=${checklistScore}%, dir=${dirScore}, combined=${score}%`);
-        map[uid] = score;
-      });
-
-      console.log("scoreMap built:", JSON.stringify(map));
-      setScoreMap(map);
-    }
-    if (prevMonthKey) fetchPrevMonth();
-  }, [prevMonthKey]);
-
+// TeamIntegritySection derives scores directly from the shared `checklists` state
+// (passed from App via DashboardPage) so director score saves reflect instantly
+// without needing a separate DB fetch.
+function TeamIntegritySection({ staffList, prevMonthKey, prevMonthName, prevYear, checklists }) {
   return (
     <div style={{ background: "#fff", borderRadius: 16, padding: "22px 24px", boxShadow: "0 2px 12px rgba(0,0,0,0.06)" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
         <div style={{ fontWeight: 700, color: "#3a2a1a", fontSize: 15 }}>👥 Team Integrity — {prevMonthName} {prevYear}</div>
-        {scoreMap === null && <span style={{ fontSize: 12, color: "#9a8a7a" }}>Loading…</span>}
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12 }}>
         {staffList.map(u => {
-          const loading = scoreMap === null;
-          // Force Number() on lookup side too — u.id may be a string from mapUser()
-          const score = scoreMap != null && scoreMap[Number(u.id)] !== undefined ? scoreMap[Number(u.id)] : null;
+          const c = checklists[Number(u.id)]?.[prevMonthKey];
+          const score = c != null ? combinedPct(c.checks, c.directorScore ?? null) : null;
           const scoreColor = score >= 80 ? "#2ecc71" : score >= 50 ? "#f39c12" : "#e74c3c";
           return (
             <div key={u.id} style={{ background: "#faf7f3", borderRadius: 12, padding: "14px 16px" }}>
@@ -669,11 +619,9 @@ function TeamIntegritySection({ staffList, prevMonthKey, prevMonthName, prevYear
                 <div style={{ width: 30, height: 30, borderRadius: "50%", background: "#c4704a", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700 }}>{u.avatar}</div>
                 <div style={{ fontSize: 13, fontWeight: 600, color: "#3a2a1a" }}>{u.name}</div>
               </div>
-              {loading
-                ? <div style={{ fontSize: 12, color: "#b0a09a" }}>Loading…</div>
-                : score !== null
-                  ? <><div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}><span style={{ fontSize: 12, color: "#7a6a5a" }}>Score</span><span style={{ fontSize: 12, fontWeight: 700, color: scoreColor }}>{score}%</span></div><Bar value={score} max={100} color={scoreColor} /></>
-                  : <div style={{ fontSize: 12, color: "#b0a09a" }}>Not submitted</div>}
+              {score !== null
+                ? <><div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}><span style={{ fontSize: 12, color: "#7a6a5a" }}>Score</span><span style={{ fontSize: 12, fontWeight: 700, color: scoreColor }}>{score}%</span></div><Bar value={score} max={100} color={scoreColor} /></>
+                : <div style={{ fontSize: 12, color: "#b0a09a" }}>Not submitted</div>}
             </div>
           );
         })}
@@ -942,6 +890,7 @@ function DashboardPage({ currentUser, users, leaveRequests, checklists, sales, i
           prevMonthKey={prevMonthKey}
           prevMonthName={prevMonthName}
           prevYear={prevYear}
+          checklists={checklists}
         />
       )}
     </div>
@@ -1288,14 +1237,8 @@ function ChecklistPage({ currentUser, users, checklists, setChecklists, isAdmin 
   async function saveDirScore() {
     const newScore = localDirScore === "" ? null : Number(localDirScore);
     if (newScore === (cl.directorScore ?? null)) return;
-    const latestChecks = checklistsRef.current[viewUserId]?.[selectedMonth]?.checks || {};
-    const latestRemarks = checklistsRef.current[viewUserId]?.[selectedMonth]?.remarks || "";
-    await supabase
-      .from("checklist_submissions")
-      .upsert(
-        { user_id: Number(viewUserId), month_key: selectedMonth, checks: latestChecks, remarks: latestRemarks, director_score: newScore },
-        { onConflict: "user_id,month_key" }
-      );
+    // Optimistic update first so all views (Dashboard, Bird's Eye View) reflect
+    // the change immediately via the shared checklists state in App.
     setChecklists(prev => ({
       ...prev,
       [viewUserId]: {
@@ -1303,6 +1246,16 @@ function ChecklistPage({ currentUser, users, checklists, setChecklists, isAdmin 
         [selectedMonth]: { ...(prev[viewUserId]?.[selectedMonth] || { checks: {}, remarks: "", directorScore: null }), directorScore: newScore },
       },
     }));
+    // Then persist to DB in the background
+    const latestChecks = checklistsRef.current[viewUserId]?.[selectedMonth]?.checks || {};
+    const latestRemarks = checklistsRef.current[viewUserId]?.[selectedMonth]?.remarks || "";
+    const { error } = await supabase
+      .from("checklist_submissions")
+      .upsert(
+        { user_id: Number(viewUserId), month_key: selectedMonth, checks: latestChecks, remarks: latestRemarks, director_score: newScore },
+        { onConflict: "user_id,month_key" }
+      );
+    if (error) console.error("[saveDirScore] Supabase save error:", error);
   }
 
   async function handleSaveSubmit() {
@@ -1652,7 +1605,7 @@ function OverviewTab({ checklists, setChecklists, staffList, monthOptions, now }
       setFetching(true);
       const { data, error } = await supabase
         .from("checklist_submissions")
-        .select("*");
+        .select("user_id, month_key, checks, remarks, director_score");
 
       console.log("[OverviewTab] refetch — rows:", data?.length, "error:", error);
       if (data) {
