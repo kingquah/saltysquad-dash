@@ -20,7 +20,10 @@
       "Read(//opt/**)",
       "Bash(tar -xzf /tmp/gh.tar.gz -C /tmp)",
       "Read(//tmp/gh_2.65.0_macOS_amd64/**)",
-      "Bash(npm install:*)"
+      "Bash(npm install:*)",
+      "Bash(claude mcp:*)",
+      "mcp__supabase__list_tables",
+      "mcp__supabase__apply_migration"
     ]
   }
 }

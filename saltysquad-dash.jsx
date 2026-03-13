@@ -340,6 +340,13 @@ function pct(checks) {
   return Math.round((scoreOf(checks) / TOTAL_ITEMS) * 100);
 }
 
+function combinedPct(checks, directorScore) {
+  const checklistPct = pct(checks);
+  if (directorScore == null) return checklistPct;
+  const dirPct = Math.round((directorScore / 10) * 100);
+  return Math.round(checklistPct * 0.5 + dirPct * 0.5);
+}
+
 function statusColor(status) {
   if (status === "Approved") return "#2ecc71";
   if (status === "Rejected") return "#e74c3c";
@@ -405,7 +412,7 @@ export default function App() {
           const uid = Number(row.user_id);
           const checks = row.checks || {};
           if (!map[uid]) map[uid] = {};
-          map[uid][row.month_key] = { checks, remarks: row.remarks || "" };
+          map[uid][row.month_key] = { checks, remarks: row.remarks || "", directorScore: row.director_score ?? null };
         }
         console.log("[loadData] checklists map keys (user ids):", Object.keys(map));
         setChecklists(map);
@@ -629,8 +636,12 @@ function TeamIntegritySection({ staffList, prevMonthKey, prevMonthName, prevYear
         // This ignores stale/renamed keys from old submissions so scores are
         // always comparable. Denominator is always TOTAL_ITEMS (currently 17).
         const ticked = ALL_ITEM_IDS.filter(id => checks[id] === true).length;
-        const score  = Math.min(100, Math.round((ticked / TOTAL_ITEMS) * 100));
-        console.log(`  uid=${uid}: ${ticked}/${TOTAL_ITEMS} canonical items ticked → ${score}%`);
+        const checklistScore = Math.min(100, Math.round((ticked / TOTAL_ITEMS) * 100));
+        const dirScore = s.director_score ?? null;
+        const score = dirScore != null
+          ? Math.round(checklistScore * 0.5 + Math.round((dirScore / 10) * 100) * 0.5)
+          : checklistScore;
+        console.log(`  uid=${uid}: ${ticked}/${TOTAL_ITEMS} canonical items ticked → checklist=${checklistScore}%, dir=${dirScore}, combined=${score}%`);
         map[uid] = score;
       });
 
@@ -1205,7 +1216,7 @@ function ChecklistPage({ currentUser, users, checklists, setChecklists, isAdmin 
   const [tab, setTab] = useState("fill");
 
   const viewUserId = Number(isAdmin ? selectedUser : currentUser.id);
-  const cl = checklists[viewUserId]?.[selectedMonth] || { checks: {}, remarks: "" };
+  const cl = checklists[viewUserId]?.[selectedMonth] || { checks: {}, remarks: "", directorScore: null };
   const isCurrentUserMonth = viewUserId === currentUser.id && selectedMonth === monthKey;
   const canEdit = isAdmin || isCurrentUserMonth;
 
@@ -1216,6 +1227,10 @@ function ChecklistPage({ currentUser, users, checklists, setChecklists, isAdmin 
   // Local remarks state to avoid a DB write on every keystroke
   const [localRemarks, setLocalRemarks] = useState(cl.remarks || "");
   useEffect(() => { setLocalRemarks(cl.remarks || ""); }, [viewUserId, selectedMonth, cl.remarks]);
+
+  // Local director score state
+  const [localDirScore, setLocalDirScore] = useState(cl.directorScore ?? "");
+  useEffect(() => { setLocalDirScore(cl.directorScore ?? ""); }, [viewUserId, selectedMonth, cl.directorScore]);
 
   // Save & Submit state
   const [saveStatus, setSaveStatus] = useState(null); // null | "saving" | "saved" | "error"
@@ -1239,7 +1254,7 @@ function ChecklistPage({ currentUser, users, checklists, setChecklists, isAdmin 
     supabase
       .from("checklist_submissions")
       .upsert(
-        { user_id: Number(viewUserId), month_key: selectedMonth, checks: newChecks, remarks: cl.remarks || "" },
+        { user_id: Number(viewUserId), month_key: selectedMonth, checks: newChecks, remarks: cl.remarks || "", director_score: cl.directorScore ?? null },
         { onConflict: "user_id,month_key" }
       )
       .select()
@@ -1253,10 +1268,11 @@ function ChecklistPage({ currentUser, users, checklists, setChecklists, isAdmin 
     if (localRemarks === (cl.remarks || "")) return;
     // Read latest checks from ref to avoid overwriting optimistic checkbox updates
     const latestChecks = checklistsRef.current[viewUserId]?.[selectedMonth]?.checks || {};
+    const latestDirScore = checklistsRef.current[viewUserId]?.[selectedMonth]?.directorScore ?? null;
     await supabase
       .from("checklist_submissions")
       .upsert(
-        { user_id: Number(viewUserId), month_key: selectedMonth, checks: latestChecks, remarks: localRemarks },
+        { user_id: Number(viewUserId), month_key: selectedMonth, checks: latestChecks, remarks: localRemarks, director_score: latestDirScore },
         { onConflict: "user_id,month_key" }
       );
     // Use functional update so we never overwrite concurrent checkbox toggles
@@ -1264,7 +1280,27 @@ function ChecklistPage({ currentUser, users, checklists, setChecklists, isAdmin 
       ...prev,
       [viewUserId]: {
         ...(prev[viewUserId] || {}),
-        [selectedMonth]: { ...(prev[viewUserId]?.[selectedMonth] || { checks: {}, remarks: "" }), remarks: localRemarks },
+        [selectedMonth]: { ...(prev[viewUserId]?.[selectedMonth] || { checks: {}, remarks: "", directorScore: null }), remarks: localRemarks },
+      },
+    }));
+  }
+
+  async function saveDirScore() {
+    const newScore = localDirScore === "" ? null : Number(localDirScore);
+    if (newScore === (cl.directorScore ?? null)) return;
+    const latestChecks = checklistsRef.current[viewUserId]?.[selectedMonth]?.checks || {};
+    const latestRemarks = checklistsRef.current[viewUserId]?.[selectedMonth]?.remarks || "";
+    await supabase
+      .from("checklist_submissions")
+      .upsert(
+        { user_id: Number(viewUserId), month_key: selectedMonth, checks: latestChecks, remarks: latestRemarks, director_score: newScore },
+        { onConflict: "user_id,month_key" }
+      );
+    setChecklists(prev => ({
+      ...prev,
+      [viewUserId]: {
+        ...(prev[viewUserId] || {}),
+        [selectedMonth]: { ...(prev[viewUserId]?.[selectedMonth] || { checks: {}, remarks: "", directorScore: null }), directorScore: newScore },
       },
     }));
   }
@@ -1273,7 +1309,8 @@ function ChecklistPage({ currentUser, users, checklists, setChecklists, isAdmin 
     setSaveStatus("saving");
     const latestChecks = checklistsRef.current[viewUserId]?.[selectedMonth]?.checks || {};
     const uid = Number(viewUserId);
-    const payload = { user_id: uid, month_key: selectedMonth, checks: latestChecks, remarks: localRemarks };
+    const dirScoreVal = isAdmin ? (localDirScore === "" ? null : Number(localDirScore)) : (cl.directorScore ?? null);
+    const payload = { user_id: uid, month_key: selectedMonth, checks: latestChecks, remarks: localRemarks, director_score: dirScoreVal };
     // ── DEBUG ──────────────────────────────────────────────────────────────
     console.log("[handleSaveSubmit] month_key:", selectedMonth);
     console.log("[handleSaveSubmit] user_id:", uid, "(original viewUserId:", viewUserId, typeof viewUserId, ")");
@@ -1291,12 +1328,12 @@ function ChecklistPage({ currentUser, users, checklists, setChecklists, isAdmin 
       setTimeout(() => setSaveStatus(null), 3000);
       return;
     }
-    // Persist remarks into shared state so score card reflects them too
+    // Persist remarks and director score into shared state so score card reflects them too
     setChecklists(prev => ({
       ...prev,
       [viewUserId]: {
         ...(prev[viewUserId] || {}),
-        [selectedMonth]: { ...(prev[viewUserId]?.[selectedMonth] || { checks: {}, remarks: "" }), checks: latestChecks, remarks: localRemarks },
+        [selectedMonth]: { ...(prev[viewUserId]?.[selectedMonth] || { checks: {}, remarks: "", directorScore: null }), checks: latestChecks, remarks: localRemarks, directorScore: dirScoreVal },
       },
     }));
     const t = new Date();
@@ -1369,6 +1406,66 @@ function ChecklistPage({ currentUser, users, checklists, setChecklists, isAdmin 
               />
             </div>
 
+            {/* Director's Scoring — admin can edit, staff can view */}
+            <div style={{ background: "#fff", borderRadius: 14, padding: "18px 20px", boxShadow: "0 1px 6px rgba(0,0,0,0.05)", borderLeft: "4px solid #c0622a" }}>
+              <div style={{ fontWeight: 700, color: "#c0622a", fontSize: 14, marginBottom: 12 }}>⭐ Director's Scoring</div>
+              {isAdmin ? (
+                <div>
+                  <label style={{ fontSize: 12, fontWeight: 700, color: "#7a6a5a", textTransform: "uppercase", letterSpacing: 0.5, display: "block", marginBottom: 6 }}>Score (0–10)</label>
+                  <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                    <input
+                      type="number"
+                      min={0}
+                      max={10}
+                      value={localDirScore}
+                      onChange={e => {
+                        const v = e.target.value;
+                        if (v === "" || (Number(v) >= 0 && Number(v) <= 10)) setLocalDirScore(v);
+                      }}
+                      onBlur={saveDirScore}
+                      placeholder="0–10"
+                      style={{ ...inputStyle, width: 90 }}
+                    />
+                    {localDirScore !== "" && (
+                      <div style={{ fontSize: 13, color: "#c0622a", fontWeight: 700 }}>
+                        = {Math.round((Number(localDirScore) / 10) * 100)}%
+                      </div>
+                    )}
+                  </div>
+                  {localDirScore !== "" && (
+                    <div style={{ marginTop: 10, background: "#fdf4f0", borderRadius: 8, padding: "8px 12px", fontSize: 13, color: "#5a4a3a" }}>
+                      Overall: <strong style={{ color: "#c0622a" }}>{combinedPct(cl.checks, Number(localDirScore))}%</strong>
+                      <span style={{ color: "#9a8a7a", marginLeft: 8, fontSize: 12 }}>
+                        (checklist {pct(cl.checks)}% + director {Math.round((Number(localDirScore)/10)*100)}%) ÷ 2
+                      </span>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div>
+                  {cl.directorScore != null ? (
+                    <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+                      <div style={{ background: "#fde8d8", borderRadius: 10, padding: "10px 18px", textAlign: "center" }}>
+                        <div style={{ fontSize: 28, fontWeight: 800, color: "#c0622a", lineHeight: 1 }}>{cl.directorScore}<span style={{ fontSize: 14 }}>/10</span></div>
+                        <div style={{ fontSize: 11, color: "#9a8a7a", marginTop: 2 }}>director score</div>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 13, color: "#5a4a3a" }}>= {Math.round((cl.directorScore / 10) * 100)}% director</div>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: "#c0622a", marginTop: 4 }}>
+                          Overall: {combinedPct(cl.checks, cl.directorScore)}%
+                        </div>
+                        <div style={{ fontSize: 12, color: "#9a8a7a" }}>
+                          (checklist {pct(cl.checks)}% + director {Math.round((cl.directorScore/10)*100)}%) ÷ 2
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={{ fontSize: 13, color: "#b0a09a", fontStyle: "italic" }}>Not yet scored by director.</div>
+                  )}
+                </div>
+              )}
+            </div>
+
             {canEdit && (() => {
               const monthLabel = monthOptions.find(m => m.key === selectedMonth)?.label || selectedMonth;
               const staffName = users.find(u => u.id === viewUserId)?.name;
@@ -1416,14 +1513,27 @@ function ChecklistPage({ currentUser, users, checklists, setChecklists, isAdmin 
               <div style={{ background: "#ede8e3", borderRadius: 99, height: 10, overflow: "hidden", marginBottom: 8 }}>
                 <div style={{ width: `${pct(cl.checks)}%`, height: "100%", background: pct(cl.checks) >= 80 ? "#2ecc71" : pct(cl.checks) >= 60 ? "#f39c12" : "#e74c3c", borderRadius: 99, transition: "width 0.4s" }} />
               </div>
-              <div style={{ fontSize: 22, fontWeight: 700, color: "#3a2a1a" }}>{pct(cl.checks)}%</div>
+              <div style={{ fontSize: 13, color: "#7a6a5a", marginBottom: 4 }}>Checklist: <strong>{pct(cl.checks)}%</strong></div>
+
+              {/* Combined overall score */}
+              {(() => {
+                const dirVal = isAdmin && localDirScore !== "" ? Number(localDirScore) : cl.directorScore;
+                const overall = combinedPct(cl.checks, dirVal ?? null);
+                return dirVal != null ? (
+                  <div style={{ background: "#fdf4f0", border: "1.5px solid #f0c8b0", borderRadius: 10, padding: "10px 14px", marginTop: 8 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: "#c0622a", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4 }}>Overall Score</div>
+                    <div style={{ fontSize: 34, fontWeight: 800, color: overall >= 80 ? "#2ecc71" : overall >= 60 ? "#f39c12" : "#e74c3c", lineHeight: 1 }}>{overall}%</div>
+                    <div style={{ fontSize: 11, color: "#9a8a7a", marginTop: 4 }}>Director: {dirVal}/10</div>
+                  </div>
+                ) : null;
+              })()}
 
               {/* Historical scores */}
               <div style={{ marginTop: 20, textAlign: "left" }}>
                 <div style={{ fontSize: 11, fontWeight: 700, color: "#9a8a7a", textTransform: "uppercase", marginBottom: 10 }}>History</div>
                 {monthOptions.slice(0,4).map(m => {
                   const past = checklists[viewUserId]?.[m.key];
-                  const p = past ? pct(past.checks) : null;
+                  const p = past ? combinedPct(past.checks, past.directorScore ?? null) : null;
                   return (
                     <div key={m.key} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
                       <span style={{ fontSize: 12, color: "#7a6a5a" }}>{m.label}</span>
@@ -1491,13 +1601,20 @@ function RemarksModal({ cell, onClose }) {
         </div>
 
         {/* Score badge */}
-        <div style={{ marginBottom: 18 }}>
+        <div style={{ marginBottom: 18, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
           <span style={{
             background: cell.pct >= 80 ? "#eafaf1" : cell.pct >= 60 ? "#fff4e0" : "#fdf0f0",
             color: cell.pct >= 80 ? "#27ae60" : cell.pct >= 60 ? "#f39c12" : "#e74c3c",
             fontWeight: 700, fontSize: 20, padding: "6px 14px", borderRadius: 10,
           }}>{cell.pct}%</span>
-          <span style={{ fontSize: 12, color: "#9a8a7a", marginLeft: 10 }}>integrity score</span>
+          <span style={{ fontSize: 12, color: "#9a8a7a" }}>
+            {cell.directorScore != null ? "overall score" : "checklist score"}
+          </span>
+          {cell.directorScore != null && (
+            <span style={{ fontSize: 12, color: "#c0622a", background: "#fdf4f0", padding: "3px 8px", borderRadius: 6, fontWeight: 600 }}>
+              ★ Dir: {cell.directorScore}/10 · Checklist: {cell.checklistPct}%
+            </span>
+          )}
         </div>
 
         {/* Divider */}
@@ -1550,7 +1667,7 @@ function OverviewTab({ checklists, setChecklists, staffList, monthOptions, now }
         for (const row of data) {
           const uid = Number(row.user_id);
           if (!map[uid]) map[uid] = {};
-          map[uid][row.month_key] = { checks: row.checks || {}, remarks: row.remarks || "" };
+          map[uid][row.month_key] = { checks: row.checks || {}, remarks: row.remarks || "", directorScore: row.director_score ?? null };
         }
         console.log("[OverviewTab] rebuilt map — keys:", Object.keys(map));
         // Log each staff member lookup
@@ -1625,14 +1742,15 @@ function OverviewTab({ checklists, setChecklists, staffList, monthOptions, now }
                   {overviewMonths.map(m => {
                     const isCurrent = m.key === currentMonthKey;
                     const c = checklists[Number(u.id)]?.[m.key];
-                    const p = c ? pct(c.checks) : null;
+                    const p = c ? combinedPct(c.checks, c.directorScore ?? null) : null;
                     const hasRemarks = !!(c?.remarks?.trim());
+                    const hasDirector = c?.directorScore != null;
                     return (
                       <td key={m.key} style={{ textAlign: "center", padding: "12px 16px", background: isCurrent ? "#fffbf5" : "transparent" }}>
                         {p !== null
                           ? (
                             <button
-                              onClick={() => setSelectedCell({ userName: u.name, monthLabel: m.label, pct: p, remarks: c?.remarks || "" })}
+                              onClick={() => setSelectedCell({ userName: u.name, monthLabel: m.label, pct: p, checklistPct: pct(c.checks), directorScore: c.directorScore ?? null, remarks: c?.remarks || "" })}
                               style={{
                                 background: "none", border: "none", cursor: "pointer",
                                 display: "inline-flex", alignItems: "center", gap: 5, padding: 0,
@@ -1640,6 +1758,7 @@ function OverviewTab({ checklists, setChecklists, staffList, monthOptions, now }
                               title="Click to view remarks"
                             >
                               <span style={{ background: p>=80?"#eafaf1":p>=60?"#fff4e0":"#fdf0f0", color: p>=80?"#27ae60":p>=60?"#f39c12":"#e74c3c", fontWeight: 700, fontSize: 13, padding: "4px 10px", borderRadius: 8 }}>{p}%</span>
+                              {hasDirector && <span style={{ fontSize: 11, color: "#c0622a", fontWeight: 700 }}>★</span>}
                               {hasRemarks && <span style={{ fontSize: 13, lineHeight: 1 }} title="Has remarks">💬</span>}
                             </button>
                           )
