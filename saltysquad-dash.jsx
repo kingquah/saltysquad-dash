@@ -400,11 +400,24 @@ function ScoreboardPage({ currentUser, users, isAdmin }) {
   const [expandedUsers, setExpandedUsers] = useState({});
 
   const CATEGORIES = ["Sales Closed", "Pipeline", "Invoice", "Quotation"];
+  // DB stores lowercase values; map to/from display names
+  const CATEGORY_MAP = {
+    "Sales Closed": "sales_closed",
+    "Pipeline":     "pipeline",
+    "Invoice":      "invoice",
+    "Quotation":    "quotation",
+  };
+  const CATEGORY_DISPLAY = {
+    "sales_closed": "Sales Closed",
+    "pipeline":     "Pipeline",
+    "invoice":      "Invoice",
+    "quotation":    "Quotation",
+  };
   const CATEGORY_COLORS = {
-    "Sales Closed": { bg: "#d4edda", color: "#1a6630" },
-    "Pipeline":     { bg: "#d0e8ff", color: "#1a4d80" },
-    "Invoice":      { bg: "#ffe5cc", color: "#8a4010" },
-    "Quotation":    { bg: "#e8e8e8", color: "#555555" },
+    "sales_closed": { bg: "#d4edda", color: "#1a6630" },
+    "pipeline":     { bg: "#d0e8ff", color: "#1a4d80" },
+    "invoice":      { bg: "#ffe5cc", color: "#8a4010" },
+    "quotation":    { bg: "#e8e8e8", color: "#555555" },
   };
 
   useEffect(() => { loadEntries(); }, [dateFrom, dateTo]);
@@ -430,7 +443,7 @@ function ScoreboardPage({ currentUser, users, isAdmin }) {
     return u ? u.avatar : "?";
   }
 
-  const totals = { "Sales Closed": 0, "Pipeline": 0, "Invoice": 0, "Quotation": 0 };
+  const totals = { "sales_closed": 0, "pipeline": 0, "invoice": 0, "quotation": 0 };
   for (const e of entries) {
     if (totals[e.category] !== undefined) totals[e.category] += Number(e.amount) || 0;
   }
@@ -456,7 +469,7 @@ function ScoreboardPage({ currentUser, users, isAdmin }) {
   }
   function openEditForm(entry) {
     setEditingEntry(entry);
-    setFormCategory(entry.category);
+    setFormCategory(CATEGORY_DISPLAY[entry.category] || entry.category);
     setFormClient(entry.client_name);
     setFormAmount(String(entry.amount));
     setFormDate(entry.entry_date);
@@ -469,7 +482,7 @@ function ScoreboardPage({ currentUser, users, isAdmin }) {
     setSaving(true);
     const payload = {
       user_id: currentUser.id,
-      category: formCategory,
+      category: CATEGORY_MAP[formCategory] || formCategory,
       client_name: formClient.trim(),
       amount: parseFloat(formAmount),
       entry_date: formDate,
@@ -493,10 +506,10 @@ function ScoreboardPage({ currentUser, users, isAdmin }) {
   const fmtRM = v => `RM ${Number(v).toLocaleString("en-MY", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
   const summaryCards = [
-    { label: "Sales Closed",    icon: "💰", key: "Sales Closed", color: "#1a6630", bg: "#d4edda" },
-    { label: "Pipeline Built",  icon: "🔥", key: "Pipeline",     color: "#1a4d80", bg: "#d0e8ff" },
-    { label: "Invoices Issued", icon: "🧾", key: "Invoice",      color: "#8a4010", bg: "#ffe5cc" },
-    { label: "Quotations Sent", icon: "📋", key: "Quotation",    color: "#555555", bg: "#e8e8e8" },
+    { label: "Sales Closed",    icon: "💰", key: "sales_closed", color: "#1a6630", bg: "#d4edda" },
+    { label: "Pipeline Built",  icon: "🔥", key: "pipeline",     color: "#1a4d80", bg: "#d0e8ff" },
+    { label: "Invoices Issued", icon: "🧾", key: "invoice",      color: "#8a4010", bg: "#ffe5cc" },
+    { label: "Quotations Sent", icon: "📋", key: "quotation",    color: "#555555", bg: "#e8e8e8" },
   ];
 
   const thStyle = (align) => ({ padding: "10px 16px", textAlign: align || "left", color: "#7a6a5a", fontWeight: 600, fontSize: 12, borderBottom: "1.5px solid #f0ebe4", whiteSpace: "nowrap" });
@@ -569,7 +582,7 @@ function ScoreboardPage({ currentUser, users, isAdmin }) {
                         </div>
                       </td>
                       <td style={{ padding: "10px 16px" }}>
-                        <span style={{ background: badge.bg, color: badge.color, padding: "3px 10px", borderRadius: 99, fontSize: 11, fontWeight: 700 }}>{e.category}</span>
+                        <span style={{ background: badge.bg, color: badge.color, padding: "3px 10px", borderRadius: 99, fontSize: 11, fontWeight: 700 }}>{CATEGORY_DISPLAY[e.category] || e.category}</span>
                       </td>
                       <td style={{ padding: "10px 16px", color: "#3a2a1a" }}>{e.client_name}</td>
                       <td style={{ padding: "10px 16px", textAlign: "right", fontWeight: 700, color: "#3a2a1a" }}>{fmtRM(e.amount)}</td>
@@ -618,7 +631,7 @@ function ScoreboardPage({ currentUser, users, isAdmin }) {
                     <tr key={e.id} style={{ borderBottom: i < myEntries.length - 1 ? "1px solid #f5f0ec" : "none" }}>
                       <td style={{ padding: "10px 16px", color: "#5a4a3a", whiteSpace: "nowrap" }}>{e.entry_date}</td>
                       <td style={{ padding: "10px 16px" }}>
-                        <span style={{ background: badge.bg, color: badge.color, padding: "3px 10px", borderRadius: 99, fontSize: 11, fontWeight: 700 }}>{e.category}</span>
+                        <span style={{ background: badge.bg, color: badge.color, padding: "3px 10px", borderRadius: 99, fontSize: 11, fontWeight: 700 }}>{CATEGORY_DISPLAY[e.category] || e.category}</span>
                       </td>
                       <td style={{ padding: "10px 16px", color: "#3a2a1a" }}>{e.client_name}</td>
                       <td style={{ padding: "10px 16px", textAlign: "right", fontWeight: 700, color: "#3a2a1a" }}>{fmtRM(e.amount)}</td>
@@ -683,7 +696,7 @@ function ScoreboardPage({ currentUser, users, isAdmin }) {
                             <tr key={e.id} style={{ borderBottom: i < data.entries.length - 1 ? "1px solid #f5f0ec" : "none" }}>
                               <td style={{ padding: "8px 12px", color: "#5a4a3a" }}>{e.entry_date}</td>
                               <td style={{ padding: "8px 12px" }}>
-                                <span style={{ background: badge.bg, color: badge.color, padding: "2px 8px", borderRadius: 99, fontSize: 11, fontWeight: 700 }}>{e.category}</span>
+                                <span style={{ background: badge.bg, color: badge.color, padding: "2px 8px", borderRadius: 99, fontSize: 11, fontWeight: 700 }}>{CATEGORY_DISPLAY[e.category] || e.category}</span>
                               </td>
                               <td style={{ padding: "8px 12px", color: "#3a2a1a" }}>{e.client_name}</td>
                               <td style={{ padding: "8px 12px", textAlign: "right", fontWeight: 700, color: "#3a2a1a" }}>{fmtRM(e.amount)}</td>
