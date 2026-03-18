@@ -377,6 +377,382 @@ function LoadingScreen() {
   );
 }
 
+// ── SCOREBOARD PAGE ───────────────────────────────────────────────────────────
+
+function ScoreboardPage({ currentUser, users, isAdmin }) {
+  const now = new Date();
+  const todayStr = now.toISOString().slice(0, 10);
+  const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
+
+  const [entries, setEntries] = useState([]);
+  const [loadingEntries, setLoadingEntries] = useState(true);
+  const [dateFrom, setDateFrom] = useState(monthStart);
+  const [dateTo, setDateTo] = useState(todayStr);
+
+  const [showForm, setShowForm] = useState(false);
+  const [editingEntry, setEditingEntry] = useState(null);
+  const [formCategory, setFormCategory] = useState("Sales Closed");
+  const [formClient, setFormClient] = useState("");
+  const [formAmount, setFormAmount] = useState("");
+  const [formDate, setFormDate] = useState(todayStr);
+  const [saving, setSaving] = useState(false);
+
+  const [expandedUsers, setExpandedUsers] = useState({});
+
+  const CATEGORIES = ["Sales Closed", "Pipeline", "Invoice", "Quotation"];
+  const CATEGORY_COLORS = {
+    "Sales Closed": { bg: "#d4edda", color: "#1a6630" },
+    "Pipeline":     { bg: "#d0e8ff", color: "#1a4d80" },
+    "Invoice":      { bg: "#ffe5cc", color: "#8a4010" },
+    "Quotation":    { bg: "#e8e8e8", color: "#555555" },
+  };
+
+  useEffect(() => { loadEntries(); }, [dateFrom, dateTo]);
+
+  async function loadEntries() {
+    setLoadingEntries(true);
+    const { data, error } = await supabase
+      .from("sales_entries")
+      .select("*")
+      .gte("entry_date", dateFrom)
+      .lte("entry_date", dateTo)
+      .order("entry_date", { ascending: false });
+    if (!error && data) setEntries(data);
+    setLoadingEntries(false);
+  }
+
+  function getUserName(userId) {
+    const u = users.find(u => String(u.id) === String(userId));
+    return u ? u.name : "Unknown";
+  }
+  function getUserAvatar(userId) {
+    const u = users.find(u => String(u.id) === String(userId));
+    return u ? u.avatar : "?";
+  }
+
+  const totals = { "Sales Closed": 0, "Pipeline": 0, "Invoice": 0, "Quotation": 0 };
+  for (const e of entries) {
+    if (totals[e.category] !== undefined) totals[e.category] += Number(e.amount) || 0;
+  }
+  const grandTotal = Object.values(totals).reduce((a, b) => a + b, 0);
+
+  const myEntries = entries.filter(e => String(e.user_id) === String(currentUser.id));
+
+  const byUser = {};
+  for (const e of entries) {
+    const uid = String(e.user_id);
+    if (!byUser[uid]) byUser[uid] = { entries: [], total: 0 };
+    byUser[uid].entries.push(e);
+    byUser[uid].total += Number(e.amount) || 0;
+  }
+
+  function openAddForm() {
+    setEditingEntry(null);
+    setFormCategory("Sales Closed");
+    setFormClient("");
+    setFormAmount("");
+    setFormDate(todayStr);
+    setShowForm(true);
+  }
+  function openEditForm(entry) {
+    setEditingEntry(entry);
+    setFormCategory(entry.category);
+    setFormClient(entry.client_name);
+    setFormAmount(String(entry.amount));
+    setFormDate(entry.entry_date);
+    setShowForm(true);
+  }
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    if (!formClient.trim() || !formAmount) return;
+    setSaving(true);
+    const payload = {
+      user_id: currentUser.id,
+      category: formCategory,
+      client_name: formClient.trim(),
+      amount: parseFloat(formAmount),
+      entry_date: formDate,
+    };
+    if (editingEntry) {
+      await supabase.from("sales_entries").update(payload).eq("id", editingEntry.id);
+    } else {
+      await supabase.from("sales_entries").insert(payload);
+    }
+    setSaving(false);
+    setShowForm(false);
+    loadEntries();
+  }
+
+  async function handleDelete(id) {
+    if (!confirm("Delete this entry?")) return;
+    await supabase.from("sales_entries").delete().eq("id", id);
+    loadEntries();
+  }
+
+  const fmtRM = v => `RM ${Number(v).toLocaleString("en-MY", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+  const summaryCards = [
+    { label: "Sales Closed",    icon: "💰", key: "Sales Closed", color: "#1a6630", bg: "#d4edda" },
+    { label: "Pipeline Built",  icon: "🔥", key: "Pipeline",     color: "#1a4d80", bg: "#d0e8ff" },
+    { label: "Invoices Issued", icon: "🧾", key: "Invoice",      color: "#8a4010", bg: "#ffe5cc" },
+    { label: "Quotations Sent", icon: "📋", key: "Quotation",    color: "#555555", bg: "#e8e8e8" },
+  ];
+
+  const thStyle = (align) => ({ padding: "10px 16px", textAlign: align || "left", color: "#7a6a5a", fontWeight: 600, fontSize: 12, borderBottom: "1.5px solid #f0ebe4", whiteSpace: "nowrap" });
+
+  return (
+    <div>
+      {/* Header */}
+      <div style={{ marginBottom: 24 }}>
+        <h2 style={{ margin: 0, fontSize: 22, fontWeight: 800, color: "#3a2a1a" }}>📊 Sales Activity Tracker</h2>
+        <p style={{ margin: "4px 0 0", fontSize: 13, color: "#9a8a7a" }}>Track team sales activities, pipeline, invoices, and quotations.</p>
+      </div>
+
+      {/* Date Range Filter */}
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 24, flexWrap: "wrap" }}>
+        <span style={{ fontSize: 13, color: "#5a4a3a", fontWeight: 600 }}>Date Range:</span>
+        <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)}
+          style={{ padding: "6px 12px", borderRadius: 8, border: "1.5px solid #e8ddd5", fontSize: 13, color: "#3a2a1a", background: "#fff" }} />
+        <span style={{ fontSize: 13, color: "#9a8a7a" }}>to</span>
+        <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)}
+          style={{ padding: "6px 12px", borderRadius: 8, border: "1.5px solid #e8ddd5", fontSize: 13, color: "#3a2a1a", background: "#fff" }} />
+        <button onClick={() => { setDateFrom(monthStart); setDateTo(todayStr); }}
+          style={{ padding: "6px 14px", borderRadius: 8, border: "1.5px solid #e8ddd5", fontSize: 13, color: "#c4704a", background: "#fde8d8", cursor: "pointer", fontWeight: 600 }}>
+          This Month
+        </button>
+      </div>
+
+      {/* Summary Cards */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 14, marginBottom: 28 }}>
+        {summaryCards.map(card => (
+          <div key={card.key} style={{ background: "#fff", borderRadius: 14, padding: "16px 20px", border: "1.5px solid #f0ebe4", boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
+            <div style={{ fontSize: 22, marginBottom: 6 }}>{card.icon}</div>
+            <div style={{ fontSize: 11, color: "#9a8a7a", fontWeight: 600, marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.5 }}>{card.label}</div>
+            <div style={{ fontSize: 18, fontWeight: 800, color: card.color }}>{fmtRM(totals[card.key])}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Master Table */}
+      <div style={{ background: "#fff", borderRadius: 14, border: "1.5px solid #f0ebe4", marginBottom: 32, overflow: "hidden" }}>
+        <div style={{ padding: "16px 20px", borderBottom: "1.5px solid #f0ebe4" }}>
+          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: "#3a2a1a" }}>All Team Entries</h3>
+        </div>
+        {loadingEntries ? (
+          <div style={{ padding: "40px 20px", textAlign: "center", color: "#b0a09a", fontSize: 14 }}>Loading…</div>
+        ) : entries.length === 0 ? (
+          <div style={{ padding: "40px 20px", textAlign: "center", color: "#b0a09a", fontSize: 14 }}>No entries for this period.</div>
+        ) : (
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+              <thead>
+                <tr style={{ background: "#faf7f3" }}>
+                  <th style={thStyle()}>Date</th>
+                  <th style={thStyle()}>Staff</th>
+                  <th style={thStyle()}>Category</th>
+                  <th style={thStyle()}>Client</th>
+                  <th style={thStyle("right")}>Amount (RM)</th>
+                  {isAdmin && <th style={thStyle()}></th>}
+                </tr>
+              </thead>
+              <tbody>
+                {entries.map((e, i) => {
+                  const badge = CATEGORY_COLORS[e.category] || { bg: "#eee", color: "#555" };
+                  return (
+                    <tr key={e.id} style={{ borderBottom: i < entries.length - 1 ? "1px solid #f5f0ec" : "none", background: i % 2 === 0 ? "#fff" : "#fdfbf9" }}>
+                      <td style={{ padding: "10px 16px", color: "#5a4a3a", whiteSpace: "nowrap" }}>{e.entry_date}</td>
+                      <td style={{ padding: "10px 16px" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <div style={{ width: 28, height: 28, borderRadius: "50%", background: "#c4704a", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, flexShrink: 0 }}>{getUserAvatar(e.user_id)}</div>
+                          <span style={{ color: "#3a2a1a", fontWeight: 500 }}>{getUserName(e.user_id)}</span>
+                        </div>
+                      </td>
+                      <td style={{ padding: "10px 16px" }}>
+                        <span style={{ background: badge.bg, color: badge.color, padding: "3px 10px", borderRadius: 99, fontSize: 11, fontWeight: 700 }}>{e.category}</span>
+                      </td>
+                      <td style={{ padding: "10px 16px", color: "#3a2a1a" }}>{e.client_name}</td>
+                      <td style={{ padding: "10px 16px", textAlign: "right", fontWeight: 700, color: "#3a2a1a" }}>{fmtRM(e.amount)}</td>
+                      {isAdmin && (
+                        <td style={{ padding: "10px 16px", whiteSpace: "nowrap" }}>
+                          <button onClick={() => openEditForm(e)} style={{ background: "none", border: "none", cursor: "pointer", color: "#c4704a", fontSize: 12, marginRight: 8 }}>Edit</button>
+                          <button onClick={() => handleDelete(e.id)} style={{ background: "none", border: "none", cursor: "pointer", color: "#e74c3c", fontSize: 12 }}>Delete</button>
+                        </td>
+                      )}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* My Entries */}
+      <div style={{ background: "#fff", borderRadius: 14, border: "1.5px solid #f0ebe4", marginBottom: 32, overflow: "hidden" }}>
+        <div style={{ padding: "16px 20px", borderBottom: "1.5px solid #f0ebe4", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: "#3a2a1a" }}>My Entries</h3>
+          <button onClick={openAddForm}
+            style={{ background: "#c4704a", color: "#fff", border: "none", borderRadius: 8, padding: "7px 16px", cursor: "pointer", fontSize: 13, fontWeight: 700 }}>
+            + Add Entry
+          </button>
+        </div>
+        {myEntries.length === 0 ? (
+          <div style={{ padding: "32px 20px", textAlign: "center", color: "#b0a09a", fontSize: 14 }}>No entries yet. Click "+ Add Entry" to log your first activity.</div>
+        ) : (
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+              <thead>
+                <tr style={{ background: "#faf7f3" }}>
+                  <th style={thStyle()}>Date</th>
+                  <th style={thStyle()}>Category</th>
+                  <th style={thStyle()}>Client</th>
+                  <th style={thStyle("right")}>Amount (RM)</th>
+                  <th style={thStyle()}></th>
+                </tr>
+              </thead>
+              <tbody>
+                {myEntries.map((e, i) => {
+                  const badge = CATEGORY_COLORS[e.category] || { bg: "#eee", color: "#555" };
+                  return (
+                    <tr key={e.id} style={{ borderBottom: i < myEntries.length - 1 ? "1px solid #f5f0ec" : "none" }}>
+                      <td style={{ padding: "10px 16px", color: "#5a4a3a", whiteSpace: "nowrap" }}>{e.entry_date}</td>
+                      <td style={{ padding: "10px 16px" }}>
+                        <span style={{ background: badge.bg, color: badge.color, padding: "3px 10px", borderRadius: 99, fontSize: 11, fontWeight: 700 }}>{e.category}</span>
+                      </td>
+                      <td style={{ padding: "10px 16px", color: "#3a2a1a" }}>{e.client_name}</td>
+                      <td style={{ padding: "10px 16px", textAlign: "right", fontWeight: 700, color: "#3a2a1a" }}>{fmtRM(e.amount)}</td>
+                      <td style={{ padding: "10px 16px", whiteSpace: "nowrap" }}>
+                        <button onClick={() => openEditForm(e)} style={{ background: "none", border: "none", cursor: "pointer", color: "#c4704a", fontSize: 12, marginRight: 8 }}>Edit</button>
+                        <button onClick={() => handleDelete(e.id)} style={{ background: "none", border: "none", cursor: "pointer", color: "#e74c3c", fontSize: 12 }}>Delete</button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* Per Person Breakdown — admin only */}
+      {isAdmin && (
+        <div style={{ background: "#fff", borderRadius: 14, border: "1.5px solid #f0ebe4", overflow: "hidden", marginBottom: 32 }}>
+          <div style={{ padding: "16px 20px", borderBottom: "1.5px solid #f0ebe4" }}>
+            <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: "#3a2a1a" }}>Per Person Breakdown</h3>
+          </div>
+          {users.filter(u => byUser[String(u.id)]).map(u => {
+            const data = byUser[String(u.id)];
+            const pct = grandTotal > 0 ? Math.round((data.total / grandTotal) * 100) : 0;
+            const expanded = !!expandedUsers[u.id];
+            return (
+              <div key={u.id} style={{ borderBottom: "1px solid #f0ebe4" }}>
+                <div onClick={() => setExpandedUsers(prev => ({ ...prev, [u.id]: !prev[u.id] }))}
+                  style={{ padding: "14px 20px", display: "flex", alignItems: "center", gap: 14, cursor: "pointer", background: expanded ? "#fdfbf9" : "#fff" }}>
+                  <div style={{ width: 34, height: 34, borderRadius: "50%", background: "#c4704a", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700, flexShrink: 0 }}>{u.avatar}</div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 700, fontSize: 14, color: "#3a2a1a" }}>{u.name}</div>
+                    <div style={{ fontSize: 12, color: "#9a8a7a" }}>{u.title}</div>
+                  </div>
+                  <div style={{ textAlign: "right", marginRight: 16 }}>
+                    <div style={{ fontWeight: 800, fontSize: 15, color: "#c4704a" }}>{fmtRM(data.total)}</div>
+                    <div style={{ fontSize: 12, color: "#9a8a7a" }}>{pct}% of team</div>
+                  </div>
+                  <div style={{ width: 100 }}>
+                    <div style={{ height: 6, background: "#f0ebe4", borderRadius: 99, overflow: "hidden" }}>
+                      <div style={{ height: "100%", width: `${pct}%`, background: "#c4704a", borderRadius: 99 }} />
+                    </div>
+                  </div>
+                  <span style={{ fontSize: 14, color: "#b0a09a", marginLeft: 4 }}>{expanded ? "▲" : "▼"}</span>
+                </div>
+                {expanded && (
+                  <div style={{ padding: "0 20px 16px", background: "#fdfbf9" }}>
+                    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+                      <thead>
+                        <tr>
+                          <th style={{ padding: "8px 12px", textAlign: "left", color: "#7a6a5a", fontWeight: 600, fontSize: 12, borderBottom: "1px solid #f0ebe4" }}>Date</th>
+                          <th style={{ padding: "8px 12px", textAlign: "left", color: "#7a6a5a", fontWeight: 600, fontSize: 12, borderBottom: "1px solid #f0ebe4" }}>Category</th>
+                          <th style={{ padding: "8px 12px", textAlign: "left", color: "#7a6a5a", fontWeight: 600, fontSize: 12, borderBottom: "1px solid #f0ebe4" }}>Client</th>
+                          <th style={{ padding: "8px 12px", textAlign: "right", color: "#7a6a5a", fontWeight: 600, fontSize: 12, borderBottom: "1px solid #f0ebe4" }}>Amount (RM)</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {data.entries.map((e, i) => {
+                          const badge = CATEGORY_COLORS[e.category] || { bg: "#eee", color: "#555" };
+                          return (
+                            <tr key={e.id} style={{ borderBottom: i < data.entries.length - 1 ? "1px solid #f5f0ec" : "none" }}>
+                              <td style={{ padding: "8px 12px", color: "#5a4a3a" }}>{e.entry_date}</td>
+                              <td style={{ padding: "8px 12px" }}>
+                                <span style={{ background: badge.bg, color: badge.color, padding: "2px 8px", borderRadius: 99, fontSize: 11, fontWeight: 700 }}>{e.category}</span>
+                              </td>
+                              <td style={{ padding: "8px 12px", color: "#3a2a1a" }}>{e.client_name}</td>
+                              <td style={{ padding: "8px 12px", textAlign: "right", fontWeight: 700, color: "#3a2a1a" }}>{fmtRM(e.amount)}</td>
+                            </tr>
+                          );
+                        })}
+                        <tr>
+                          <td colSpan={3} style={{ padding: "10px 12px", fontWeight: 700, color: "#7a6a5a", fontSize: 13 }}>Total</td>
+                          <td style={{ padding: "10px 12px", textAlign: "right", fontWeight: 800, color: "#c4704a", fontSize: 14 }}>{fmtRM(data.total)}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+          {Object.keys(byUser).length === 0 && (
+            <div style={{ padding: "32px 20px", textAlign: "center", color: "#b0a09a", fontSize: 14 }}>No entries for this period.</div>
+          )}
+        </div>
+      )}
+
+      {/* Add / Edit Modal */}
+      {showForm && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(58,42,26,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}>
+          <div style={{ background: "#fff", borderRadius: 16, padding: 28, width: "100%", maxWidth: 420, boxShadow: "0 8px 40px rgba(58,42,26,0.2)" }}>
+            <h3 style={{ margin: "0 0 20px", fontSize: 17, fontWeight: 800, color: "#3a2a1a" }}>{editingEntry ? "Edit Entry" : "Add Entry"}</h3>
+            <form onSubmit={handleSubmit}>
+              <div style={{ marginBottom: 14 }}>
+                <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#5a4a3a", marginBottom: 5 }}>Category</label>
+                <select value={formCategory} onChange={e => setFormCategory(e.target.value)} required
+                  style={{ width: "100%", padding: "9px 12px", borderRadius: 8, border: "1.5px solid #e8ddd5", fontSize: 13, color: "#3a2a1a", background: "#fff", boxSizing: "border-box" }}>
+                  {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
+              <div style={{ marginBottom: 14 }}>
+                <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#5a4a3a", marginBottom: 5 }}>Client Name</label>
+                <input value={formClient} onChange={e => setFormClient(e.target.value)} required placeholder="e.g. Acme Corp"
+                  style={{ width: "100%", padding: "9px 12px", borderRadius: 8, border: "1.5px solid #e8ddd5", fontSize: 13, color: "#3a2a1a", boxSizing: "border-box" }} />
+              </div>
+              <div style={{ marginBottom: 14 }}>
+                <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#5a4a3a", marginBottom: 5 }}>Amount (RM)</label>
+                <input type="number" min="0" step="0.01" value={formAmount} onChange={e => setFormAmount(e.target.value)} required placeholder="0.00"
+                  style={{ width: "100%", padding: "9px 12px", borderRadius: 8, border: "1.5px solid #e8ddd5", fontSize: 13, color: "#3a2a1a", boxSizing: "border-box" }} />
+              </div>
+              <div style={{ marginBottom: 20 }}>
+                <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#5a4a3a", marginBottom: 5 }}>Date</label>
+                <input type="date" value={formDate} onChange={e => setFormDate(e.target.value)} required
+                  style={{ width: "100%", padding: "9px 12px", borderRadius: 8, border: "1.5px solid #e8ddd5", fontSize: 13, color: "#3a2a1a", boxSizing: "border-box" }} />
+              </div>
+              <div style={{ display: "flex", gap: 10 }}>
+                <button type="submit" disabled={saving}
+                  style={{ flex: 1, background: "#c4704a", color: "#fff", border: "none", borderRadius: 8, padding: "10px 0", fontSize: 14, fontWeight: 700, cursor: saving ? "not-allowed" : "pointer", opacity: saving ? 0.7 : 1 }}>
+                  {saving ? "Saving…" : editingEntry ? "Save Changes" : "Add Entry"}
+                </button>
+                <button type="button" onClick={() => setShowForm(false)}
+                  style={{ flex: 1, background: "#f0ebe4", color: "#5a4a3a", border: "none", borderRadius: 8, padding: "10px 0", fontSize: 14, fontWeight: 600, cursor: "pointer" }}>
+                  Cancel
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── MAIN APP ──────────────────────────────────────────────────────────────────
 
 export default function App() {
@@ -456,6 +832,7 @@ export default function App() {
     { id: "checklist", label: "Integrity", icon: "✅" },
     { id: "sales", label: "Sales", icon: "📊" },
     { id: "docs", label: "Documents", icon: "📁" },
+    { id: "scoreboard", label: "Scoreboard", icon: "🏆" },
     ...(isAdmin ? [{ id: "admin", label: "Admin", icon: "⚙️" }] : []),
   ];
 
@@ -493,6 +870,7 @@ export default function App() {
         {page === "checklist" && <ChecklistPage currentUser={currentUser} users={users} checklists={checklists} setChecklists={setChecklists} isAdmin={isAdmin} />}
         {page === "sales" && <SalesPage sales={sales} setSales={setSales} isAdmin={isAdmin} />}
         {page === "docs" && <DocsPage docModal={docModal} setDocModal={setDocModal} />}
+        {page === "scoreboard" && <ScoreboardPage currentUser={currentUser} users={users} isAdmin={isAdmin} />}
         {page === "admin" && isAdmin && <AdminPage users={users} setUsers={setUsers} leaveRequests={leaveRequests} setLeaveRequests={setLeaveRequests} checklists={checklists} />}
       </main>
 
