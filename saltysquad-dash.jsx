@@ -388,6 +388,8 @@ function ScoreboardPage({ currentUser, users, isAdmin }) {
   const [loadingEntries, setLoadingEntries] = useState(true);
   const [dateFrom, setDateFrom] = useState(monthStart);
   const [dateTo, setDateTo] = useState(todayStr);
+  const [filterCategory, setFilterCategory] = useState("all");
+  const [filterUser, setFilterUser] = useState("all");
 
   const [showForm, setShowForm] = useState(false);
   const [editingEntry, setEditingEntry] = useState(null);
@@ -549,8 +551,32 @@ function ScoreboardPage({ currentUser, users, isAdmin }) {
 
       {/* Master Table */}
       <div style={{ background: "#fff", borderRadius: 14, border: "1.5px solid #f0ebe4", marginBottom: 32, overflow: "hidden" }}>
-        <div style={{ padding: "16px 20px", borderBottom: "1.5px solid #f0ebe4" }}>
+        <div style={{ padding: "16px 20px", borderBottom: "1.5px solid #f0ebe4", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10 }}>
           <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: "#3a2a1a" }}>All Team Entries</h3>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+            <select value={filterUser} onChange={e => setFilterUser(e.target.value)}
+              style={{ padding: "4px 10px", borderRadius: 8, border: "1.5px solid #e8ddd5", fontSize: 12, color: "#3a2a1a", background: "#fff", fontWeight: 600, cursor: "pointer" }}>
+              <option value="all">All Staff</option>
+              {users.map(u => <option key={u.id} value={String(u.id)}>{u.name}</option>)}
+            </select>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              {["all", "sales_closed", "pipeline", "invoice", "quotation"].map(cat => {
+                const label = cat === "all" ? "All" : (CATEGORY_DISPLAY[cat] || cat);
+                const active = filterCategory === cat;
+                const colors = cat !== "all" ? CATEGORY_COLORS[cat] : null;
+                return (
+                  <button key={cat} onClick={() => setFilterCategory(cat)} style={{
+                    padding: "4px 12px", borderRadius: 99, fontSize: 11, fontWeight: 700, cursor: "pointer", border: "1.5px solid",
+                    background: active ? (colors ? colors.bg : "#3a2a1a") : "#fff",
+                    color: active ? (colors ? colors.color : "#fff") : "#9a8a7a",
+                    borderColor: active ? (colors ? colors.color : "#3a2a1a") : "#e8ddd5",
+                  }}>
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
         </div>
         {loadingEntries ? (
           <div style={{ padding: "40px 20px", textAlign: "center", color: "#b0a09a", fontSize: 14 }}>Loading…</div>
@@ -570,10 +596,10 @@ function ScoreboardPage({ currentUser, users, isAdmin }) {
                 </tr>
               </thead>
               <tbody>
-                {entries.map((e, i) => {
+                {(() => { const filtered = entries.filter(e => (filterCategory === "all" || e.category === filterCategory) && (filterUser === "all" || String(e.user_id) === filterUser)); return filtered.map((e, i) => {
                   const badge = CATEGORY_COLORS[e.category] || { bg: "#eee", color: "#555" };
                   return (
-                    <tr key={e.id} style={{ borderBottom: i < entries.length - 1 ? "1px solid #f5f0ec" : "none", background: i % 2 === 0 ? "#fff" : "#fdfbf9" }}>
+                    <tr key={e.id} style={{ borderBottom: i < filtered.length - 1 ? "1px solid #f5f0ec" : "none", background: i % 2 === 0 ? "#fff" : "#fdfbf9" }}>
                       <td style={{ padding: "10px 16px", color: "#5a4a3a", whiteSpace: "nowrap" }}>{e.entry_date}</td>
                       <td style={{ padding: "10px 16px" }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -594,7 +620,7 @@ function ScoreboardPage({ currentUser, users, isAdmin }) {
                       )}
                     </tr>
                   );
-                })}
+                }); })()}
               </tbody>
             </table>
           </div>
