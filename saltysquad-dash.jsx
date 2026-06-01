@@ -418,6 +418,24 @@ function mapSales(row) {
   };
 }
 
+// Live "Achieved" per month = sum of Scoreboard `sales_closed` entries whose
+// entry_date falls in that month. This OVERRIDES sales_targets.achieved — that
+// stored column is intentionally ignored. entry_date is parsed by string split
+// (not `new Date`) to stay timezone-safe.
+function mergeAchievedFromEntries(salesRows, entries) {
+  const sumByKey = {}; // "year-monthIdx" -> total amount
+  for (const e of entries) {
+    if (!e.entry_date) continue;
+    const [y, mo] = String(e.entry_date).split("-");
+    const key = `${Number(y)}-${Number(mo) - 1}`;
+    sumByKey[key] = (sumByKey[key] || 0) + (Number(e.amount) || 0);
+  }
+  return salesRows.map(s => {
+    const key = `${s.year}-${MONTHS.indexOf(s.month)}`;
+    return { ...s, achieved: sumByKey[key] || 0 };
+  });
+}
+
 // ── HELPERS ───────────────────────────────────────────────────────────────────
 
 function scoreOf(checks) {
@@ -468,7 +486,7 @@ function LoadingScreen() {
 
 // ── SCOREBOARD PAGE ───────────────────────────────────────────────────────────
 
-function ScoreboardPage({ currentUser, users, isAdmin }) {
+function ScoreboardPage({ currentUser, users, isAdmin, onSalesEntriesChanged }) {
   const now = new Date();
   const todayStr = now.toISOString().slice(0, 10);
   const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
@@ -586,12 +604,14 @@ function ScoreboardPage({ currentUser, users, isAdmin }) {
     setSaving(false);
     setShowForm(false);
     loadEntries();
+    onSalesEntriesChanged?.();
   }
 
   async function handleDelete(id) {
     if (!confirm("Delete this entry?")) return;
     await supabase.from("sales_entries").delete().eq("id", id);
     loadEntries();
+    onSalesEntriesChanged?.();
   }
 
   const fmtRM = v => `RM ${Number(v).toLocaleString("en-MY", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -883,12 +903,44 @@ function ScoreboardPage({ currentUser, users, isAdmin }) {
 
 // ── MAIN APP ──────────────────────────────────────────────────────────────────
 
+// "Remember Me": persist the logged-in user across browser sessions.
+// We omit `password` — auto-login skips the password check, so the
+// credential never needs to live in localStorage.
+const USER_STORAGE_KEY = "saltysquad_user";
+
+function loadStoredUser() {
+  try {
+    const saved = localStorage.getItem(USER_STORAGE_KEY);
+    return saved ? JSON.parse(saved) : null;
+  } catch {
+    return null;
+  }
+}
+
+function rememberUser(user) {
+  try {
+    const { password, ...safe } = user;
+    localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(safe));
+  } catch {
+    /* localStorage unavailable (private mode / quota) — login still works */
+  }
+}
+
+function forgetUser() {
+  try {
+    localStorage.removeItem(USER_STORAGE_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
 export default function App() {
-  const [currentUser, setCurrentUser] = useState(null);
+  const [currentUser, setCurrentUser] = useState(loadStoredUser);
   const [page, setPage] = useState("dashboard");
   const [users, setUsers] = useState([]);
   const [leaveRequests, setLeaveRequests] = useState([]);
   const [sales, setSales] = useState([]);
+  const [salesEntries, setSalesEntries] = useState([]);
   const [checklists, setChecklists] = useState({});
   const [docModal, setDocModal] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -896,10 +948,11 @@ export default function App() {
   useEffect(() => {
     let cancelled = false;
     async function loadData() {
-      const [usersRes, leaveRes, salesRes, checklistRes] = await Promise.all([
+      const [usersRes, leaveRes, salesRes, salesEntriesRes, checklistRes] = await Promise.all([
         supabase.from("users").select("*"),
         supabase.from("leave_requests").select("*"),
         supabase.from("sales_targets").select("*"),
+        supabase.from("sales_entries").select("amount, entry_date").eq("category", "sales_closed"),
         supabase.from("checklist_submissions").select("*"),
       ]);
       if (cancelled) return;
@@ -907,6 +960,7 @@ export default function App() {
       if (usersRes.data) setUsers(usersRes.data.map(mapUser));
       if (leaveRes.data) setLeaveRequests(leaveRes.data.map(mapLeave));
       if (salesRes.data) setSales(salesRes.data.map(mapSales));
+      if (salesEntriesRes.data) setSalesEntries(salesEntriesRes.data);
 
       console.log("[loadData] checklist_submissions — rows:", checklistRes.data?.length, "error:", checklistRes.error);
       if (checklistRes.data) {
@@ -929,9 +983,22 @@ export default function App() {
 
   if (loading) return <LoadingScreen />;
 
-  if (!currentUser) return <Login users={users} onLogin={u => { setCurrentUser(u); setPage("dashboard"); }} />;
+  if (!currentUser) return <Login users={users} onLogin={u => { rememberUser(u); setCurrentUser(u); setPage("dashboard"); }} />;
 
   const isAdmin = currentUser.role === "admin" || currentUser.role === "supervisor";
+
+  // Dashboard + Sales tab read "Achieved" live from Scoreboard sales_closed entries.
+  const salesLive = mergeAchievedFromEntries(sales, salesEntries);
+
+  // Re-fetch the sales_closed totals so Dashboard/Sales stay in sync after the
+  // Scoreboard adds, edits, or deletes an entry — no page reload needed.
+  async function refreshSalesEntries() {
+    const { data } = await supabase
+      .from("sales_entries")
+      .select("amount, entry_date")
+      .eq("category", "sales_closed");
+    if (data) setSalesEntries(data);
+  }
 
   async function handleLeaveAction(id, action) {
     const req = leaveRequests.find(l => l.id === id);
@@ -986,19 +1053,19 @@ export default function App() {
             <div className="header-user-name" style={{ fontSize: 13, fontWeight: 600, color: "#3a2a1a" }}>{currentUser.name}</div>
             <div className="header-user-title" style={{ fontSize: 11, color: "#c4704a" }}>{currentUser.title}</div>
           </div>
-          <button onClick={() => setCurrentUser(null)} style={{ background: "none", border: "1px solid #e0d5cc", borderRadius: 8, padding: "4px 10px", cursor: "pointer", fontSize: 12, color: "#7a6a5a" }}>Sign out</button>
+          <button onClick={() => { forgetUser(); setCurrentUser(null); }} style={{ background: "none", border: "1px solid #e0d5cc", borderRadius: 8, padding: "4px 10px", cursor: "pointer", fontSize: 12, color: "#7a6a5a" }}>Sign out</button>
         </div>
       </header>
 
       {/* PAGE CONTENT */}
       <main className="main-content" style={{ flex: 1, padding: "28px 32px", maxWidth: 1200, width: "100%", margin: "0 auto" }}>
-        {page === "dashboard" && <DashboardPage currentUser={currentUser} users={users} leaveRequests={leaveRequests} checklists={checklists} sales={sales} isAdmin={isAdmin} setPage={setPage} onLeaveAction={handleLeaveAction} />}
+        {page === "dashboard" && <DashboardPage currentUser={currentUser} users={users} leaveRequests={leaveRequests} checklists={checklists} sales={salesLive} isAdmin={isAdmin} setPage={setPage} onLeaveAction={handleLeaveAction} />}
         {page === "leave" && <LeavePage currentUser={currentUser} users={users} setUsers={setUsers} leaveRequests={leaveRequests} setLeaveRequests={setLeaveRequests} isAdmin={isAdmin} onLeaveAction={handleLeaveAction} />}
 
         {page === "checklist" && <ChecklistPage currentUser={currentUser} users={users} checklists={checklists} setChecklists={setChecklists} isAdmin={isAdmin} />}
-        {page === "sales" && <SalesPage sales={sales} setSales={setSales} isAdmin={isAdmin} />}
+        {page === "sales" && <SalesPage sales={salesLive} setSales={setSales} isAdmin={isAdmin} />}
         {page === "docs" && <DocsPage docModal={docModal} setDocModal={setDocModal} />}
-        {page === "scoreboard" && <ScoreboardPage currentUser={currentUser} users={users} isAdmin={isAdmin} />}
+        {page === "scoreboard" && <ScoreboardPage currentUser={currentUser} users={users} isAdmin={isAdmin} onSalesEntriesChanged={refreshSalesEntries} />}
         {page === "admin" && isAdmin && <AdminPage users={users} setUsers={setUsers} leaveRequests={leaveRequests} setLeaveRequests={setLeaveRequests} checklists={checklists} />}
       </main>
 
@@ -2258,19 +2325,19 @@ function SalesPage({ sales, setSales, isAdmin }) {
   function startEdit(month) {
     const idx = dedupedSales.findIndex(s => s.month === month);
     setEditing(month);
-    setEditVals({ target: dedupedSales[idx].target, achieved: dedupedSales[idx].achieved });
+    setEditVals({ target: dedupedSales[idx].target });
   }
 
   async function saveEdit(month) {
     const s = dedupedSales.find(r => r.month === month);
     const newTarget = Number(editVals.target);
-    const newAchieved = Number(editVals.achieved);
+    // Only `target` is editable — `achieved` is derived live from sales_closed entries.
     const { error } = await supabase
       .from("sales_targets")
-      .update({ target: newTarget, achieved: newAchieved })
+      .update({ target: newTarget })
       .eq("id", s.id);
     if (!error) {
-      setSales(prev => prev.map(row => row.id !== s.id ? row : { ...row, target: newTarget, achieved: newAchieved }));
+      setSales(prev => prev.map(row => row.id !== s.id ? row : { ...row, target: newTarget }));
     }
     setEditing(null);
   }
@@ -2333,9 +2400,9 @@ function SalesPage({ sales, setSales, isAdmin }) {
               <div style={{ width: 40, fontSize: 14, fontWeight: 700, color: "#5a4a3a" }}>{s.month}</div>
               {editing === s.month && isAdmin ? (
                 <>
-                  <div style={{ flex: 1, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                  <div style={{ flex: 1, display: "grid", gridTemplateColumns: "1fr", gap: 10 }}>
                     <div><label style={{ fontSize: 11, color: "#9a8a7a" }}>Target (RM)</label><input type="number" value={editVals.target} onChange={e => setEditVals({...editVals, target: e.target.value})} style={{ ...inputStyle, padding: "6px 10px" }} /></div>
-                    <div><label style={{ fontSize: 11, color: "#9a8a7a" }}>Achieved (RM)</label><input type="number" value={editVals.achieved} onChange={e => setEditVals({...editVals, achieved: e.target.value})} style={{ ...inputStyle, padding: "6px 10px" }} /></div>
+                    <div style={{ fontSize: 11, color: "#9a8a7a" }}>Achieved is calculated automatically from Scoreboard "Sales Closed" entries.</div>
                   </div>
                   <button onClick={() => saveEdit(s.month)} style={{ background: "#c4704a", color: "#fff", border: "none", borderRadius: 8, padding: "7px 14px", cursor: "pointer", fontSize: 13 }}>Save</button>
                   <button onClick={() => setEditing(null)} style={{ background: "#f0ebe4", color: "#7a6a5a", border: "none", borderRadius: 8, padding: "7px 14px", cursor: "pointer", fontSize: 13 }}>Cancel</button>
