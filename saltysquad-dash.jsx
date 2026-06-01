@@ -420,20 +420,21 @@ function mapSales(row) {
 
 // Live "Achieved" per month = sum of Scoreboard `sales_closed` entries whose
 // entry_date falls in that month. This OVERRIDES sales_targets.achieved — that
-// stored column is intentionally ignored. entry_date is parsed by string split
-// (not `new Date`) to stay timezone-safe.
+// stored column is intentionally ignored. sales_targets has no `year` column,
+// so rows are matched by month name only (as the rest of the app does); entries
+// are filtered to the current calendar year. entry_date is parsed by string
+// split (not `new Date`) to stay timezone-safe.
 function mergeAchievedFromEntries(salesRows, entries) {
-  const sumByKey = {}; // "year-monthIdx" -> total amount
+  const year = new Date().getFullYear();
+  const sumByMonthIdx = {}; // monthIdx -> total amount for the current year
   for (const e of entries) {
     if (!e.entry_date) continue;
     const [y, mo] = String(e.entry_date).split("-");
-    const key = `${Number(y)}-${Number(mo) - 1}`;
-    sumByKey[key] = (sumByKey[key] || 0) + (Number(e.amount) || 0);
+    if (Number(y) !== year) continue;
+    const idx = Number(mo) - 1;
+    sumByMonthIdx[idx] = (sumByMonthIdx[idx] || 0) + (Number(e.amount) || 0);
   }
-  return salesRows.map(s => {
-    const key = `${s.year}-${MONTHS.indexOf(s.month)}`;
-    return { ...s, achieved: sumByKey[key] || 0 };
-  });
+  return salesRows.map(s => ({ ...s, achieved: sumByMonthIdx[MONTHS.indexOf(s.month)] || 0 }));
 }
 
 // ── HELPERS ───────────────────────────────────────────────────────────────────
