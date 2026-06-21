@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { supabase } from "./supabase";
 
 // ── STATIC / CONFIG DATA ──────────────────────────────────────────────────────
@@ -1027,6 +1027,7 @@ export default function App() {
     { id: "leave", label: "Leave", icon: "🌴" },
     { id: "checklist", label: "Integrity", icon: "✅" },
     { id: "sales", label: "Sales", icon: "📊" },
+    { id: "budget", label: "Budget", icon: "📒" },
     { id: "docs", label: "Documents", icon: "📁" },
     { id: "scoreboard", label: "Scoreboard", icon: "🏆" },
     ...(isAdmin ? [{ id: "admin", label: "Admin", icon: "⚙️" }] : []),
@@ -1065,6 +1066,7 @@ export default function App() {
 
         {page === "checklist" && <ChecklistPage currentUser={currentUser} users={users} checklists={checklists} setChecklists={setChecklists} isAdmin={isAdmin} />}
         {page === "sales" && <SalesPage sales={salesLive} setSales={setSales} isAdmin={isAdmin} />}
+        {page === "budget" && <BudgetPage currentUser={currentUser} salesEntries={salesEntries} isEditor={isAdmin} />}
         {page === "docs" && <DocsPage docModal={docModal} setDocModal={setDocModal} />}
         {page === "scoreboard" && <ScoreboardPage currentUser={currentUser} users={users} isAdmin={isAdmin} onSalesEntriesChanged={refreshSalesEntries} />}
         {page === "admin" && isAdmin && <AdminPage users={users} setUsers={setUsers} leaveRequests={leaveRequests} setLeaveRequests={setLeaveRequests} checklists={checklists} />}
@@ -2427,6 +2429,433 @@ function SalesPage({ sales, setSales, isAdmin }) {
       </div>}
     </div>
   );
+}
+
+// ── BUDGET TRACKER ────────────────────────────────────────────────────────────
+
+// P&L line-item structure (SaltyCustoms Group income statement). "input" rows
+// store a budget + actual; "subtotal" rows are computed live from earlier rows
+// via compute(get). `cost: true` marks lines where spending LESS is favourable.
+const BUDGET_PL = [
+  { kind: "section", label: "Revenue" },
+  { kind: "input", key: "sales_products",    label: "Sales – Products", autoActual: true },
+  { kind: "input", key: "sales_design",      label: "Sales – Design Fee" },
+  { kind: "input", key: "sales_delivery",    label: "Sales – Delivery Fee" },
+  { kind: "input", key: "sales_consultancy", label: "Sales – Consultancy Fee" },
+  { kind: "input", key: "sales_others",      label: "Sales – Others" },
+  { kind: "input", key: "shipping_income",   label: "Shipping Income" },
+  { kind: "input", key: "sales_adjustments", label: "Sales Adjustments / Discounts", cost: true, note: "deducted from revenue" },
+  { kind: "subtotal", key: "revenue", label: "Revenue", emphasis: true,
+    compute: g => diff(["sales_products","sales_design","sales_delivery","sales_consultancy","sales_others","shipping_income"], ["sales_adjustments"], g) },
+
+  { kind: "section", label: "Cost of Sales" },
+  { kind: "input", key: "pur_products",   label: "Purchases – Products", cost: true },
+  { kind: "input", key: "pur_shirts",     label: "Purchases – Shirts (Apparel)", cost: true },
+  { kind: "input", key: "pur_saltyskins", label: "Purchases – Saltyskins Sdn Bhd (Interco.)", cost: true },
+  { kind: "input", key: "freight",        label: "Freight & Transport", cost: true },
+  { kind: "input", key: "printing",       label: "Printing, Packaging & Labelling", cost: true },
+  { kind: "input", key: "rnd",            label: "R&D Cost", cost: true },
+  { kind: "input", key: "duty_handling",  label: "Duty, Handling & Other COS", cost: true },
+  { kind: "subtotal", key: "cost_of_sales", label: "Cost of Sales", cost: true,
+    compute: g => sumKeys(["pur_products","pur_shirts","pur_saltyskins","freight","printing","rnd","duty_handling"], g) },
+
+  { kind: "subtotal", key: "gross_profit", label: "Gross Profit / (Loss)", emphasis: true,
+    compute: g => combine(g("revenue"), g("cost_of_sales"), -1) },
+
+  { kind: "section", label: "Other Operating Income" },
+  { kind: "input", key: "gain_disposal", label: "Gain on Disposal of Asset Held for Sale" },
+  { kind: "input", key: "rental_income", label: "Rental Income" },
+  { kind: "input", key: "gain_forex",    label: "Gain on Foreign Exchange" },
+  { kind: "input", key: "other_income",  label: "Other Income" },
+  { kind: "subtotal", key: "other_op_income", label: "Other Operating Income",
+    compute: g => sumKeys(["gain_disposal","rental_income","gain_forex","other_income"], g) },
+
+  { kind: "section", label: "Operating Expenses" },
+  { kind: "input", key: "admin_opex",        label: "Administration & Operating Expenses", cost: true },
+  { kind: "input", key: "dep_plant",         label: "Depreciation – Plant & Equipment", cost: true },
+  { kind: "input", key: "dep_invprop",       label: "Depreciation – Investment Properties", cost: true },
+  { kind: "input", key: "forex_loss",        label: "Foreign Exchange Loss", cost: true },
+  { kind: "input", key: "deposit_forfeited", label: "Deposit Forfeited", cost: true },
+  { kind: "subtotal", key: "total_opex", label: "Total Operating Expenses", cost: true,
+    compute: g => sumKeys(["admin_opex","dep_plant","dep_invprop","forex_loss","deposit_forfeited"], g) },
+
+  { kind: "subtotal", key: "operating_profit", label: "Operating Profit / (Loss)", emphasis: true,
+    compute: g => ({
+      budget: g("gross_profit").budget + g("other_op_income").budget - g("total_opex").budget,
+      actual: g("gross_profit").actual + g("other_op_income").actual - g("total_opex").actual }) },
+
+  { kind: "section", label: "Finance & Other" },
+  { kind: "input", key: "finance_income",  label: "Finance Income" },
+  { kind: "input", key: "finance_costs",   label: "Finance Costs", cost: true, note: "deducted" },
+  { kind: "input", key: "share_associate", label: "Share of Result from Associate" },
+  { kind: "subtotal", key: "pbt", label: "Profit / (Loss) Before Taxation", emphasis: true,
+    compute: g => ({
+      budget: g("operating_profit").budget + g("finance_income").budget - g("finance_costs").budget + g("share_associate").budget,
+      actual: g("operating_profit").actual + g("finance_income").actual - g("finance_costs").actual + g("share_associate").actual }) },
+
+  { kind: "input", key: "taxation", label: "Taxation Expense", cost: true, note: "deducted" },
+  { kind: "subtotal", key: "net_profit", label: "Total Comprehensive Income / (Loss)", emphasis: true, grand: true,
+    compute: g => combine(g("pbt"), g("taxation"), -1) },
+];
+
+// formula helpers operate on {budget, actual} pairs
+function sumKeys(keys, g) {
+  return keys.reduce((a, k) => ({ budget: a.budget + g(k).budget, actual: a.actual + g(k).actual }), { budget: 0, actual: 0 });
+}
+function diff(plus, minus, g) {
+  const p = sumKeys(plus, g), m = sumKeys(minus, g);
+  return { budget: p.budget - m.budget, actual: p.actual - m.actual };
+}
+function combine(a, b, sign) {
+  return { budget: a.budget + sign * b.budget, actual: a.actual + sign * b.actual };
+}
+
+const BUDGET_INPUT_KEYS = BUDGET_PL.filter(r => r.kind === "input").map(r => r.key);
+const BUDGET_LABELS = Object.fromEntries(BUDGET_PL.filter(r => r.key).map(r => [r.key, r.label]));
+
+// Resolve every row's {budget, actual} for one month in a single forward pass.
+function computePL(entryMap) {
+  const resolved = {};
+  const get = k => resolved[k] || { budget: 0, actual: 0 };
+  return BUDGET_PL.map(r => {
+    if (r.kind === "section") return { ...r };
+    if (r.kind === "input") {
+      const e = entryMap[r.key] || {};
+      const v = { budget: Number(e.budget) || 0, actual: Number(e.actual) || 0 };
+      resolved[r.key] = v;
+      return { ...r, ...v };
+    }
+    const v = r.compute(get);
+    resolved[r.key] = v;
+    return { ...r, ...v };
+  });
+}
+
+function fmtRM(n) {
+  const v = Math.round(Number(n) || 0);
+  return (v < 0 ? "−RM " : "RM ") + Math.abs(v).toLocaleString();
+}
+
+// Non-editor staff see only rows flagged staff_visible; a section header shows
+// only when at least one of its lines (before the next section) is visible.
+function filterForStaff(rows, visibility) {
+  const out = [];
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i];
+    if (r.kind === "section") {
+      let any = false;
+      for (let j = i + 1; j < rows.length && rows[j].kind !== "section"; j++) {
+        if (visibility[rows[j].key]) { any = true; break; }
+      }
+      if (any) out.push(r);
+    } else if (visibility[r.key]) {
+      out.push(r);
+    }
+  }
+  return out;
+}
+
+function BudgetPage({ currentUser, salesEntries, isEditor }) {
+  const now = new Date();
+  const [year, setYear] = useState(now.getFullYear());
+  const [month, setMonth] = useState(MONTHS[now.getMonth()]);
+  const [entries, setEntries] = useState({});       // month -> { line_key: {id, budget, actual} }
+  const [visibility, setVisibility] = useState({}); // line_key -> bool
+  const [audit, setAudit] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [setupNeeded, setSetupNeeded] = useState(false);
+  const [showAudit, setShowAudit] = useState(false);
+  const [editing, setEditing] = useState(null);
+  const [editVals, setEditVals] = useState({ budget: "", actual: "" });
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      const [entRes, visRes, audRes] = await Promise.all([
+        supabase.from("budget_entries").select("*").eq("year", year),
+        supabase.from("budget_line_visibility").select("*"),
+        supabase.from("budget_audit").select("*").order("created_at", { ascending: false }).limit(150),
+      ]);
+      if (cancelled) return;
+      const msg = entRes.error?.message || "";
+      if (entRes.error && /does not exist|schema cache|relation/i.test(msg)) {
+        setSetupNeeded(true); setLoading(false); return;
+      }
+      const map = {};
+      for (const r of entRes.data || []) {
+        if (!map[r.month]) map[r.month] = {};
+        map[r.month][r.line_key] = { id: r.id, budget: Number(r.budget), actual: Number(r.actual) };
+      }
+      setEntries(map);
+      const vis = {};
+      for (const r of visRes.data || []) vis[r.line_key] = r.staff_visible;
+      setVisibility(vis);
+      setAudit(audRes.data || []);
+      setLoading(false);
+    })();
+    return () => { cancelled = true; };
+  }, [year]);
+
+  // Actual product-sales auto-linked from Scoreboard "Sales Closed" entries.
+  const salesActualByMonth = useMemo(() => {
+    const m = {};
+    for (const e of salesEntries || []) {
+      if (!e.entry_date) continue;
+      const d = new Date(e.entry_date);
+      if (d.getFullYear() !== year) continue;
+      const k = MONTHS[d.getMonth()];
+      m[k] = (m[k] || 0) + Number(e.amount || 0);
+    }
+    return m;
+  }, [salesEntries, year]);
+
+  const monthEntries = entries[month] || {};
+  const entryMap = {};
+  for (const k of BUDGET_INPUT_KEYS) {
+    const stored = monthEntries[k] || {};
+    entryMap[k] = { budget: stored.budget || 0, actual: stored.actual || 0 };
+  }
+  // override the auto-linked line's actual
+  entryMap.sales_products.actual = salesActualByMonth[month] || 0;
+
+  const rows = computePL(entryMap);
+  const visibleRows = isEditor ? rows : filterForStaff(rows, visibility);
+  const net = rows.find(r => r.key === "net_profit") || { budget: 0, actual: 0 };
+
+  function mkAudit(line_key, field, oldV, newV, withMonth = true) {
+    return {
+      line_key, field,
+      year: withMonth ? year : null,
+      month: withMonth ? month : null,
+      old_value: String(oldV), new_value: String(newV),
+      user_id: currentUser.id, user_name: currentUser.name,
+    };
+  }
+
+  function startEdit(key) {
+    const e = monthEntries[key] || {};
+    setEditing(key);
+    setEditVals({ budget: e.budget ?? "", actual: e.actual ?? "" });
+  }
+
+  async function saveEdit(key) {
+    const def = BUDGET_PL.find(r => r.key === key);
+    const existing = monthEntries[key] || {};
+    const oldBudget = existing.budget || 0;
+    const oldActual = existing.actual || 0;
+    const newBudget = Number(editVals.budget) || 0;
+    const newActual = def.autoActual ? oldActual : (Number(editVals.actual) || 0);
+
+    const { data, error } = await supabase
+      .from("budget_entries")
+      .upsert({ year, month, line_key: key, budget: newBudget, actual: newActual }, { onConflict: "year,month,line_key" })
+      .select()
+      .single();
+    if (error) { console.error("[budget save]", error); alert("Save failed: " + error.message); return; }
+
+    const auditRows = [];
+    if (newBudget !== oldBudget) auditRows.push(mkAudit(key, "budget", oldBudget, newBudget));
+    if (!def.autoActual && newActual !== oldActual) auditRows.push(mkAudit(key, "actual", oldActual, newActual));
+    if (auditRows.length) {
+      const { data: aud } = await supabase.from("budget_audit").insert(auditRows).select();
+      if (aud) setAudit(prev => [...aud, ...prev]);
+    }
+
+    setEntries(prev => ({ ...prev, [month]: { ...(prev[month] || {}), [key]: { id: data.id, budget: newBudget, actual: newActual } } }));
+    setEditing(null);
+  }
+
+  async function toggleVisibility(key) {
+    const cur = !!visibility[key];
+    const next = !cur;
+    const { error } = await supabase
+      .from("budget_line_visibility")
+      .upsert({ line_key: key, staff_visible: next }, { onConflict: "line_key" });
+    if (error) { console.error("[visibility]", error); alert("Could not update visibility: " + error.message); return; }
+    setVisibility(prev => ({ ...prev, [key]: next }));
+    const { data: aud } = await supabase
+      .from("budget_audit")
+      .insert([mkAudit(key, "visibility", cur ? "visible" : "hidden", next ? "visible" : "hidden", false)])
+      .select();
+    if (aud) setAudit(prev => [...aud, ...prev]);
+  }
+
+  const yearOpts = [now.getFullYear() - 1, now.getFullYear(), now.getFullYear() + 1];
+  const bInput = { width: 110, padding: "6px 8px", borderRadius: 8, border: "1px solid #e0d5cc", fontSize: 13, fontFamily: "inherit", boxSizing: "border-box", textAlign: "right" };
+  const selStyle = { padding: "6px 10px", borderRadius: 8, border: "1px solid #e0d5cc", fontSize: 13, fontFamily: "inherit", background: "#fff", cursor: "pointer" };
+
+  if (loading) return <div style={{ padding: 40, textAlign: "center", color: "#9a8a7a" }}>Loading budget…</div>;
+
+  if (setupNeeded) {
+    return (
+      <div style={{ background: "#fff", borderRadius: 16, padding: "32px 24px", boxShadow: "0 2px 12px rgba(0,0,0,0.06)", maxWidth: 640 }}>
+        <h2 style={{ fontSize: 20, fontWeight: 800, color: "#3a2a1a", marginTop: 0 }}>📒 Budget Tracker — one-time setup</h2>
+        <p style={{ color: "#7a6a5a", fontSize: 14, lineHeight: 1.6 }}>
+          The budget tables don't exist in Supabase yet. Open <strong>Supabase → SQL Editor</strong>, paste the
+          <code style={{ background: "#faf7f3", padding: "1px 6px", borderRadius: 6 }}> budget </code> section from <code style={{ background: "#faf7f3", padding: "1px 6px", borderRadius: 6 }}>schema.sql</code>, and run it. Then reload this page.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 6 }}>
+        <h2 style={{ fontSize: 22, fontWeight: 700, color: "#3a2a1a", margin: 0 }}>📒 Budget vs Actual</h2>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <select value={month} onChange={e => { setMonth(e.target.value); setEditing(null); }} style={selStyle}>
+            {MONTHS.map(m => <option key={m} value={m}>{m}</option>)}
+          </select>
+          <select value={year} onChange={e => { setYear(Number(e.target.value)); setEditing(null); }} style={selStyle}>
+            {yearOpts.map(y => <option key={y} value={y}>{y}</option>)}
+          </select>
+        </div>
+      </div>
+      <p style={{ color: "#9a8a7a", fontSize: 13, marginBottom: 20 }}>
+        Live profit &amp; loss for {month} {year} — budget against what actually happened (RM).{" "}
+        {isEditor ? "Click ✏️ to edit a line; 👁 toggles whether staff can see it." : "You're viewing the lines shared with the team."}
+      </p>
+
+      {/* SUMMARY */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 14, marginBottom: 22 }}>
+        <SummaryCard label="Net Profit — Budget" value={fmtRM(net.budget)} accent="#9a8a7a" />
+        <SummaryCard label="Net Profit — Actual" value={fmtRM(net.actual)} accent={net.actual >= net.budget ? "#2ecc71" : "#e74c3c"} />
+        <SummaryCard label="Variance" value={(net.actual - net.budget >= 0 ? "+" : "") + fmtRM(net.actual - net.budget)} accent={net.actual - net.budget >= 0 ? "#2ecc71" : "#e74c3c"} />
+      </div>
+
+      {/* P&L TABLE */}
+      <div style={{ background: "#fff", borderRadius: 16, padding: "10px 0", boxShadow: "0 2px 12px rgba(0,0,0,0.06)", overflowX: "auto" }}>
+        <div style={{ minWidth: 620 }}>
+          <div style={{ display: "grid", gridTemplateColumns: isEditor ? "1fr 130px 130px 130px 70px" : "1fr 130px 130px 130px", gap: 0, padding: "8px 20px", borderBottom: "2px solid #f0ebe4", fontSize: 11, fontWeight: 700, color: "#9a8a7a", textTransform: "uppercase", letterSpacing: 0.5 }}>
+            <div>Line Item</div>
+            <div style={{ textAlign: "right" }}>Budget</div>
+            <div style={{ textAlign: "right" }}>Actual</div>
+            <div style={{ textAlign: "right" }}>Variance</div>
+            {isEditor && <div style={{ textAlign: "center" }}>Staff</div>}
+          </div>
+
+          {visibleRows.length === 0 && (
+            <div style={{ padding: "32px 20px", textAlign: "center", color: "#9a8a7a", fontSize: 13 }}>
+              No line items have been shared with staff yet.
+            </div>
+          )}
+
+          {visibleRows.map((r, i) => {
+            if (r.kind === "section") {
+              return (
+                <div key={"s" + i} style={{ padding: "14px 20px 4px", fontSize: 12, fontWeight: 800, color: "#c4704a", textTransform: "uppercase", letterSpacing: 0.5 }}>{r.label}</div>
+              );
+            }
+            const variance = r.actual - r.budget;
+            const hasData = r.budget !== 0 || r.actual !== 0;
+            const favourable = r.cost ? r.actual <= r.budget : r.actual >= r.budget;
+            const varColor = !hasData ? "#c0b5ae" : favourable ? "#2ecc71" : "#e74c3c";
+            const isEmph = r.kind === "subtotal";
+            const editingThis = editing === r.key && isEditor;
+            return (
+              <div key={r.key} style={{
+                display: "grid",
+                gridTemplateColumns: isEditor ? "1fr 130px 130px 130px 70px" : "1fr 130px 130px 130px",
+                gap: 0, alignItems: "center",
+                padding: "9px 20px",
+                borderBottom: "1px solid #f8f5f2",
+                background: r.grand ? "#fdf6f1" : isEmph ? "#fbf9f7" : "#fff",
+              }}>
+                <div style={{ fontSize: 13, fontWeight: isEmph ? 700 : 400, color: isEmph ? "#3a2a1a" : "#5a4a3a" }}>
+                  {r.label}
+                  {r.autoActual && <span title="Actual auto-linked from Scoreboard Sales Closed" style={{ marginLeft: 6, fontSize: 11, color: "#c4704a" }}>🔗</span>}
+                  {r.note && <span style={{ marginLeft: 6, fontSize: 11, color: "#b0a294" }}>({r.note})</span>}
+                </div>
+
+                {editingThis ? (
+                  <>
+                    <div style={{ textAlign: "right" }}>
+                      <input type="number" autoFocus value={editVals.budget} onChange={e => setEditVals({ ...editVals, budget: e.target.value })} style={bInput} />
+                    </div>
+                    <div style={{ textAlign: "right" }}>
+                      {r.autoActual
+                        ? <span style={{ fontSize: 12, color: "#9a8a7a" }}>{fmtRM(r.actual)} 🔗</span>
+                        : <input type="number" value={editVals.actual} onChange={e => setEditVals({ ...editVals, actual: e.target.value })} style={bInput} />}
+                    </div>
+                    <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
+                      <button onClick={() => saveEdit(r.key)} style={{ background: "#c4704a", color: "#fff", border: "none", borderRadius: 8, padding: "6px 12px", cursor: "pointer", fontSize: 12 }}>Save</button>
+                      <button onClick={() => setEditing(null)} style={{ background: "#f0ebe4", color: "#7a6a5a", border: "none", borderRadius: 8, padding: "6px 10px", cursor: "pointer", fontSize: 12 }}>✕</button>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div style={{ textAlign: "right", fontSize: 13, color: "#7a6a5a", fontWeight: isEmph ? 700 : 400 }}>{fmtRM(r.budget)}</div>
+                    <div style={{ textAlign: "right", fontSize: 13, color: isEmph ? "#3a2a1a" : "#5a4a3a", fontWeight: isEmph ? 700 : 400 }}>{fmtRM(r.actual)}</div>
+                    <div style={{ textAlign: "right", fontSize: 13, fontWeight: 600, color: varColor }}>
+                      {hasData ? (variance >= 0 ? "+" : "") + fmtRM(variance) : "—"}
+                    </div>
+                  </>
+                )}
+
+                {isEditor && !editingThis && (
+                  <div style={{ display: "flex", gap: 4, justifyContent: "center", alignItems: "center" }}>
+                    {r.kind === "input" && (
+                      <button title="Edit" onClick={() => startEdit(r.key)} style={{ background: "#faf7f3", border: "1px solid #e8ddd5", borderRadius: 7, padding: "4px 8px", cursor: "pointer", fontSize: 12 }}>✏️</button>
+                    )}
+                    <button
+                      title={visibility[r.key] ? "Visible to staff — click to hide" : "Hidden from staff — click to show"}
+                      onClick={() => toggleVisibility(r.key)}
+                      style={{ background: visibility[r.key] ? "#eafaf1" : "#faf7f3", border: "1px solid " + (visibility[r.key] ? "#bfe9cf" : "#e8ddd5"), borderRadius: 7, padding: "4px 8px", cursor: "pointer", fontSize: 12 }}
+                    >{visibility[r.key] ? "👁" : "🚫"}</button>
+                  </div>
+                )}
+                {isEditor && editingThis && <div />}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* AUDIT TRAIL */}
+      {isEditor && (
+        <div style={{ background: "#fff", borderRadius: 16, padding: "18px 22px", boxShadow: "0 2px 12px rgba(0,0,0,0.06)", marginTop: 22 }}>
+          <button onClick={() => setShowAudit(s => !s)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 15, fontWeight: 700, color: "#3a2a1a", padding: 0, display: "flex", alignItems: "center", gap: 8 }}>
+            🕒 Audit Trail <span style={{ fontSize: 12, color: "#9a8a7a", fontWeight: 400 }}>({audit.length} change{audit.length === 1 ? "" : "s"})</span>
+            <span style={{ fontSize: 12, color: "#c4704a" }}>{showAudit ? "▲ hide" : "▼ show"}</span>
+          </button>
+          {showAudit && (
+            <div style={{ marginTop: 14 }}>
+              {audit.length === 0 && <div style={{ color: "#9a8a7a", fontSize: 13 }}>No edits recorded yet.</div>}
+              {audit.map(a => (
+                <div key={a.id} style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "baseline", padding: "8px 0", borderBottom: "1px solid #f8f5f2", fontSize: 12.5 }}>
+                  <span style={{ fontWeight: 700, color: "#3a2a1a" }}>{a.user_name || "—"}</span>
+                  <span style={{ color: "#7a6a5a" }}>
+                    {a.field === "visibility" ? "set" : "changed"} <strong>{BUDGET_LABELS[a.line_key] || a.line_key}</strong>
+                    {a.field !== "visibility" && a.month ? <> ({a.month} {a.year}) {a.field}</> : a.field === "visibility" ? " visibility" : null}
+                  </span>
+                  <span style={{ color: "#9a8a7a" }}>
+                    {a.field === "visibility" ? <>→ {a.new_value}</> : <>{fmtRM(a.old_value)} → {fmtRM(a.new_value)}</>}
+                  </span>
+                  <span style={{ marginLeft: "auto", color: "#b0a294", fontSize: 11 }}>{fmtAuditTime(a.created_at)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SummaryCard({ label, value, accent }) {
+  return (
+    <div style={{ background: "#fff", borderRadius: 14, padding: "16px 18px", boxShadow: "0 2px 12px rgba(0,0,0,0.06)" }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: "#9a8a7a", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>{label}</div>
+      <div style={{ fontSize: 22, fontWeight: 800, color: accent }}>{value}</div>
+    </div>
+  );
+}
+
+function fmtAuditTime(ts) {
+  if (!ts) return "";
+  const d = new Date(ts);
+  return d.toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
 }
 
 // ── DOCS PAGE ─────────────────────────────────────────────────────────────────

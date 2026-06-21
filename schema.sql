@@ -71,3 +71,46 @@ insert into sales_targets (month, year, target, achieved)
 select m, extract(year from current_date)::integer, 500000, 0
 from unnest(array['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']) as m
 on conflict (month, year) do nothing;
+
+-- ── BUDGET TRACKER ───────────────────────────────────────────────────────────
+-- Budget vs Actual for each P&L line item, per month. The line-item structure,
+-- labels and formulas live in the app (BUDGET_PL constant); only the numbers and
+-- per-line confidentiality flags are stored here.
+
+-- 5. BUDGET ENTRIES — one row per (year, month, line item)
+create table if not exists budget_entries (
+  id        uuid default gen_random_uuid() primary key,
+  year      integer not null default extract(year from current_date)::integer,
+  month     text not null,            -- "Jan" .. "Dec"
+  line_key  text not null,            -- matches a key in the app's BUDGET_PL
+  budget    numeric not null default 0,
+  actual    numeric not null default 0,
+  unique (year, month, line_key)
+);
+
+-- 6. BUDGET LINE VISIBILITY — which P&L lines non-editor staff may view.
+--    Default: hidden. King / Puteri / Wilson flip individual lines on.
+create table if not exists budget_line_visibility (
+  line_key      text primary key,
+  staff_visible boolean not null default false
+);
+
+-- 7. BUDGET AUDIT — every budget/actual edit and visibility change.
+create table if not exists budget_audit (
+  id         uuid default gen_random_uuid() primary key,
+  line_key   text not null,
+  year       integer,
+  month      text,
+  field      text not null,           -- 'budget' | 'actual' | 'visibility'
+  old_value  text,
+  new_value  text,
+  user_id    integer,
+  user_name  text,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists budget_audit_created_idx on budget_audit (created_at desc);
+
+alter table budget_entries        disable row level security;
+alter table budget_line_visibility disable row level security;
+alter table budget_audit          disable row level security;
