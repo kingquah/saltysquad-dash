@@ -19,7 +19,7 @@ export const BUDGET_STRUCTURE = [
     budget: 450000, actuals: [150000,300000,500000,500000,500000,500000,500000,500000,500000,500000,500000,510000] },
 
   { kind: "group", label: "COGS" },
-  { kind: "input", key: "total_cogs", label: "Total COGS (incl. Design Commission 30%)", sign: -1,
+  { kind: "input", key: "total_cogs", label: "Total COGS", sign: -1,
     budget: 0, actuals: [96000, ...Array(11).fill(310000)] },
 
   { kind: "group", label: "Salaries" },
