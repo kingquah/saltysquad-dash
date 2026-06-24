@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { supabase } from "./supabase";
 import { BUDGET_STRUCTURE, BUDGET_MONTHS, BUDGET_INPUT_KEYS, BUDGET_LABELS } from "./budget-data.js";
+import * as XLSX from "xlsx";
 
 // ── STATIC / CONFIG DATA ──────────────────────────────────────────────────────
 
@@ -2650,6 +2651,27 @@ function BudgetPage({ currentUser, salesEntries, isEditor }) {
     logAudit([mkAudit(key, "visibility", cur ? "visible" : "hidden", next ? "visible" : "hidden")]);
   }
 
+  function downloadExcel() {
+    const round2 = n => Math.round((Number(n) || 0) * 100) / 100;
+    const header = ["Line Item", "Monthly Budgeted", ...BUDGET_MONTHS.map(m => `${m}-${String(year).slice(2)}`), "Total"];
+    const aoa = [[`SaltyORIGINS & Basics Budget ${year}`], [], header];
+    for (const row of visibleRows) {
+      if (row.kind === "group" || row.kind === "sub") { aoa.push([row.label]); continue; }
+      if (row.kind === "npm") {
+        aoa.push([row.label, "", ...BUDGET_MONTHS.map(m => row.pct[m] ? round2(row.pct[m]) : 0), row.total ? round2(row.total) : 0]);
+        continue;
+      }
+      aoa.push([row.label, round2(row.budget), ...BUDGET_MONTHS.map(m => round2(row.actuals[m])), round2(row.total)]);
+    }
+    aoa.push([]);
+    aoa.push(["Months checked & good:", BUDGET_MONTHS.filter(m => monthStatus[m]).join(", ") || "none"]);
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    ws["!cols"] = [{ wch: 42 }, { wch: 16 }, ...BUDGET_MONTHS.map(() => ({ wch: 12 })), { wch: 14 }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, `Budget ${year}`);
+    XLSX.writeFile(wb, `SaltyBudget_${year}.xlsx`);
+  }
+
   if (loading || seeding) return <div style={{ padding: 40, textAlign: "center", color: "#9a8a7a" }}>{seeding ? "Setting up budget from your sheet…" : "Loading budget…"}</div>;
 
   if (setupNeeded) return (
@@ -2673,9 +2695,15 @@ function BudgetPage({ currentUser, salesEntries, isEditor }) {
     <div>
       <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 6 }}>
         <h2 style={{ fontSize: 22, fontWeight: 700, color: "#3a2a1a", margin: 0 }}>📒 SaltyORIGINS & Basics Budget {year}</h2>
-        <select value={year} onChange={e => { setYear(Number(e.target.value)); setEditing(null); }} style={{ padding: "6px 10px", borderRadius: 8, border: "1px solid #e0d5cc", fontSize: 13, fontFamily: "inherit", background: "#fff", cursor: "pointer" }}>
-          {[now.getFullYear() - 1, now.getFullYear(), now.getFullYear() + 1].map(y => <option key={y} value={y}>{y}</option>)}
-        </select>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <button onClick={downloadExcel} title="Download the whole budget as an Excel file"
+            style={{ display: "flex", alignItems: "center", gap: 6, background: "#1e7a46", color: "#fff", border: "none", borderRadius: 8, padding: "7px 14px", cursor: "pointer", fontSize: 13, fontWeight: 600 }}>
+            ⬇ Excel
+          </button>
+          <select value={year} onChange={e => { setYear(Number(e.target.value)); setEditing(null); }} style={{ padding: "6px 10px", borderRadius: 8, border: "1px solid #e0d5cc", fontSize: 13, fontFamily: "inherit", background: "#fff", cursor: "pointer" }}>
+            {[now.getFullYear() - 1, now.getFullYear(), now.getFullYear() + 1].map(y => <option key={y} value={y}>{y}</option>)}
+          </select>
+        </div>
       </div>
       <p style={{ color: "#9a8a7a", fontSize: 13, marginBottom: 16 }}>
         Monthly Budgeted target vs actuals per month, with live Net Profit (RM).{" "}
