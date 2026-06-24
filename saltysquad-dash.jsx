@@ -1029,7 +1029,7 @@ export default function App() {
     { id: "leave", label: "Leave", icon: "🌴" },
     { id: "checklist", label: "Integrity", icon: "✅" },
     { id: "sales", label: "Sales", icon: "📊" },
-    { id: "budget", label: "Budget", icon: "📒" },
+    ...(isAdmin ? [{ id: "budget", label: "Budget", icon: "📒" }] : []),
     { id: "docs", label: "Documents", icon: "📁" },
     { id: "scoreboard", label: "Scoreboard", icon: "🏆" },
     ...(isAdmin ? [{ id: "admin", label: "Admin", icon: "⚙️" }] : []),
@@ -1068,7 +1068,7 @@ export default function App() {
 
         {page === "checklist" && <ChecklistPage currentUser={currentUser} users={users} checklists={checklists} setChecklists={setChecklists} isAdmin={isAdmin} />}
         {page === "sales" && <SalesPage sales={salesLive} setSales={setSales} isAdmin={isAdmin} />}
-        {page === "budget" && <BudgetPage currentUser={currentUser} salesEntries={salesEntries} isEditor={isAdmin} />}
+        {page === "budget" && isAdmin && <BudgetPage currentUser={currentUser} salesEntries={salesEntries} isEditor={isAdmin} />}
         {page === "docs" && <DocsPage docModal={docModal} setDocModal={setDocModal} />}
         {page === "scoreboard" && <ScoreboardPage currentUser={currentUser} users={users} isAdmin={isAdmin} onSalesEntriesChanged={refreshSalesEntries} />}
         {page === "admin" && isAdmin && <AdminPage users={users} setUsers={setUsers} leaveRequests={leaveRequests} setLeaveRequests={setLeaveRequests} checklists={checklists} />}
@@ -2702,14 +2702,6 @@ function BudgetPage({ currentUser, salesEntries, isEditor }) {
     logAudit([mkAudit("__month__", "month_status", cur ? "unchecked" : "checked", next ? "checked" : "unchecked", month)]);
   }
 
-  async function toggleVisibility(key) {
-    const cur = !!visibility[key], next = !cur;
-    const { error } = await supabase.from("budget_line_visibility").upsert({ line_key: key, staff_visible: next }, { onConflict: "line_key" });
-    if (error) { console.error(error); alert("Visibility update failed: " + error.message); return; }
-    setVisibility(prev => ({ ...prev, [key]: next }));
-    logAudit([mkAudit(key, "visibility", cur ? "visible" : "hidden", next ? "visible" : "hidden")]);
-  }
-
   async function setLineHidden(key, hidden) {
     const ln = lines[key] || { monthly_budget: 0, actuals: emptyActuals() };
     const { data, error } = await supabase.from("budget_lines")
@@ -2838,7 +2830,7 @@ function BudgetPage({ currentUser, salesEntries, isEditor }) {
       )}
       <p style={{ color: "#9a8a7a", fontSize: 13, marginBottom: 16 }}>
         Monthly Budgeted target vs actuals per month, with live Net Profit (RM).{" "}
-        {isEditor ? "Click any cell to edit · click a month header to mark it checked/good · 👁 staff visibility · 🗑 remove · ➕ add line." : "Showing the lines shared with the team."}
+        Click any cell to edit · click a month header to mark it checked/good · 🗑 remove a line · ➕ add a line.
       </p>
       {isEditor && (!hasHidden || !hasCustom) && (
         <div style={{ background: "#fff8ee", border: "1px solid #f0dcc0", borderRadius: 10, padding: "10px 14px", marginBottom: 16, fontSize: 12.5, color: "#8a6a3a" }}>
@@ -2899,14 +2891,9 @@ function BudgetPage({ currentUser, salesEntries, isEditor }) {
               return (
                 <tr key={row.key} style={{ background: row.archived ? "#f4f1ee" : rowBg, borderTop: emph ? "1px solid #eadfd5" : "1px solid #f6f1ec", opacity: row.archived ? 0.6 : 1 }}>
                   <td style={{ ...stickyLabel({ background: row.archived ? "#f4f1ee" : rowBg }), padding: cellPad, color: emph ? "#3a2a1a" : "#5a4a3a", fontWeight: emph ? 700 : 400 }}>
-                    {isEditor && row.key && !isComputed && !row.archived && (
-                      <>
-                        <button title={visibility[row.key] ? "Visible to staff" : "Hidden from staff"} onClick={() => toggleVisibility(row.key)}
-                          style={{ marginRight: 4, border: "none", background: "transparent", cursor: "pointer", fontSize: 12, opacity: visibility[row.key] ? 1 : 0.4 }}>
-                          {visibility[row.key] ? "👁" : "🚫"}</button>
-                        {hasHidden && <button title="Remove this line (excluded from totals; restorable)" onClick={() => deleteLine(row.key, row.label)}
-                          style={{ marginRight: 6, border: "none", background: "transparent", cursor: "pointer", fontSize: 12, opacity: 0.55 }}>🗑</button>}
-                      </>
+                    {isEditor && row.key && !isComputed && !row.archived && hasHidden && (
+                      <button title="Remove this line (excluded from totals; restorable)" onClick={() => deleteLine(row.key, row.label)}
+                        style={{ marginRight: 6, border: "none", background: "transparent", cursor: "pointer", fontSize: 12, opacity: 0.55 }}>🗑</button>
                     )}
                     {isEditor && row.archived && (
                       <button title="Restore this line" onClick={() => setLineHidden(row.key, false)}
