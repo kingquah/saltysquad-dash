@@ -45,6 +45,18 @@ export const BUDGET_STRUCTURE = [
   { kind: "input", key: "team_bonus",   label: "Team Bonus",              sign: -1, budget: 0,    actuals: rDec(0, 40000) },
   { kind: "input", key: "entertainment",label: "Entertainment",           sign: -1, budget: 2000, actuals: r(2000) },
 
+  { kind: "sub", label: "Utilities" },
+  { kind: "input", key: "util_electric", label: "Electricity",            sign: -1, budget: 450,    actuals: r(450) },
+  { kind: "input", key: "util_water",    label: "Water",                  sign: -1, budget: 35.80,  actuals: r(35.80) },
+  { kind: "input", key: "util_internet", label: "Internet",               sign: -1, budget: 262.88, actuals: r(262.88) },
+  { kind: "input", key: "util_phone",    label: "Phone Bill (Puteri + King)", sign: -1, budget: 150, actuals: r(150) },
+
+  { kind: "sub", label: "Office Supplies" },
+  { kind: "input", key: "off_stationery", label: "Stationery, Printing, Paper Items", sign: -1, budget: 80, actuals: r(200) },
+  { kind: "input", key: "off_pantry",     label: "Pantry & Cleaning Items", sign: -1, budget: 500, actuals: r(500) },
+  { kind: "input", key: "off_it",         label: "IT Supplies",            sign: -1, budget: 100, actuals: r(100) },
+  { kind: "input", key: "off_furniture",  label: "Furniture and Fittings", sign: -1, budget: 0,   actuals: r(0) },
+
   { kind: "sub", label: "Professional Services" },
   { kind: "input", key: "fin_perfectaim", label: "Finance Team (Perfect Aim Service)", sign: -1, budget: 3500, actuals: r(3500) },
   { kind: "input", key: "fin_sg",          label: "Finance Team (SG)",      sign: -1, budget: 825,  actuals: r(825) },
@@ -71,19 +83,7 @@ export const BUDGET_STRUCTURE = [
   { kind: "input", key: "sub_systeme",  label: "Systeme.io",              sign: -1, budget: 0,   actuals: r(0) },
   { kind: "input", key: "sub_misc",     label: "Miscellaneous Subscription", sign: -1, budget: 0, actuals: r(0) },
 
-  { kind: "sub", label: "Variable — Utilities" },
-  { kind: "input", key: "util_electric", label: "Electricity",            sign: -1, budget: 450,    actuals: r(450) },
-  { kind: "input", key: "util_water",    label: "Water",                  sign: -1, budget: 35.80,  actuals: r(35.80) },
-  { kind: "input", key: "util_internet", label: "Internet",               sign: -1, budget: 262.88, actuals: r(262.88) },
-  { kind: "input", key: "util_phone",    label: "Phone Bill (Puteri + King)", sign: -1, budget: 150, actuals: r(150) },
-
-  { kind: "sub", label: "Variable — Office Supplies" },
-  { kind: "input", key: "off_stationery", label: "Stationery, Printing, Paper Items", sign: -1, budget: 80, actuals: r(200) },
-  { kind: "input", key: "off_pantry",     label: "Pantry & Cleaning Items", sign: -1, budget: 500, actuals: r(500) },
-  { kind: "input", key: "off_it",         label: "IT Supplies",            sign: -1, budget: 100, actuals: r(100) },
-  { kind: "input", key: "off_furniture",  label: "Furniture and Fittings", sign: -1, budget: 0,   actuals: r(0) },
-
-  { kind: "sub", label: "Variable — Vehicle Upkeep & Maintenance" },
+  { kind: "sub", label: "Vehicle Upkeep & Maintenance" },
   { kind: "input", key: "veh_insurance", label: "Motor Insurance",         sign: -1, budget: 1000, actuals: r(1000) },
   { kind: "input", key: "veh_service",   label: "Car Service",             sign: -1, budget: 200,  actuals: r(200) },
 
