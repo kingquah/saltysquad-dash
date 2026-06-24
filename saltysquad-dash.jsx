@@ -2697,7 +2697,7 @@ function BudgetPage({ currentUser, salesEntries, isEditor }) {
         <h2 style={{ fontSize: 22, fontWeight: 700, color: "#3a2a1a", margin: 0 }}>📒 SaltyORIGINS & Basics Budget {year}</h2>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           <button onClick={downloadExcel} title="Download the whole budget as an Excel file"
-            style={{ display: "flex", alignItems: "center", gap: 6, background: "#1e7a46", color: "#fff", border: "none", borderRadius: 8, padding: "7px 14px", cursor: "pointer", fontSize: 13, fontWeight: 600 }}>
+            style={{ display: "flex", alignItems: "center", gap: 6, background: "#1e7a46", color: "#fff", border: "1px solid transparent", borderRadius: 8, padding: "6px 10px", cursor: "pointer", fontSize: 13, fontFamily: "inherit", fontWeight: 600, lineHeight: "normal" }}>
             ⬇ Excel
           </button>
           <select value={year} onChange={e => { setYear(Number(e.target.value)); setEditing(null); }} style={{ padding: "6px 10px", borderRadius: 8, border: "1px solid #e0d5cc", fontSize: 13, fontFamily: "inherit", background: "#fff", cursor: "pointer" }}>
