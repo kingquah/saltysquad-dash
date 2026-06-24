@@ -114,6 +114,20 @@ export const BUDGET_STRUCTURE = [
   { kind: "npm", key: "npm", label: "Net Profit Margin %", net: "net_profit", base: "total_sales" },
 ];
 
+// Sections an editor may add a custom line under, and which subtotal it rolls
+// into. (All current sections are cost lines.)
+export const BUDGET_ADDABLE_SECTIONS = [
+  { label: "Salaries",                      subtotal: "total_salaries" },
+  { label: "Fixed",                         subtotal: "total_expenses" },
+  { label: "Utilities",                     subtotal: "total_expenses" },
+  { label: "Office Supplies",               subtotal: "total_expenses" },
+  { label: "Professional Services",         subtotal: "total_expenses" },
+  { label: "Subscriptions",                 subtotal: "total_expenses" },
+  { label: "Vehicle Upkeep & Maintenance",  subtotal: "total_expenses" },
+  { label: "Loans",                         subtotal: "total_loans" },
+];
+export const SECTION_TO_SUBTOTAL = Object.fromEntries(BUDGET_ADDABLE_SECTIONS.map(s => [s.label, s.subtotal]));
+
 export const BUDGET_INPUT_KEYS = BUDGET_STRUCTURE.filter(x => x.kind === "input").map(x => x.key);
 export const BUDGET_LABELS = Object.fromEntries(
   BUDGET_STRUCTURE.filter(x => x.key).map(x => [x.key, x.label])

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { supabase } from "./supabase";
-import { BUDGET_STRUCTURE, BUDGET_MONTHS, BUDGET_INPUT_KEYS, BUDGET_LABELS } from "./budget-data.js";
+import { BUDGET_STRUCTURE, BUDGET_MONTHS, BUDGET_INPUT_KEYS, BUDGET_LABELS, BUDGET_ADDABLE_SECTIONS, SECTION_TO_SUBTOTAL } from "./budget-data.js";
 import * as XLSX from "xlsx";
 
 // ── STATIC / CONFIG DATA ──────────────────────────────────────────────────────
@@ -2452,11 +2452,37 @@ function emptyActuals() {
 // Resolve budget + 12 actuals + row total for every structure row (inputs from
 // the DB map; subtotals / net / npm computed live). salesByMonth overrides the
 // auto-linked Total Sales actuals.
-function computeBudgetRows(linesMap, salesByMonth) {
+// Splice editor-added custom lines into the fixed structure at the end of their
+// chosen section (before the next header / subtotal).
+function buildMergedStructure(customLines) {
+  const bySection = {};
+  for (const c of customLines) (bySection[c.section] ||= []).push(c);
+  const out = [];
+  let cur = null;
+  const flush = () => {
+    if (cur && bySection[cur]) {
+      for (const c of bySection[cur]) out.push({ kind: "input", key: c.line_key, label: c.label, sign: -1, custom: true, section: c.section });
+      bySection[cur] = null;
+    }
+  };
+  for (const row of BUDGET_STRUCTURE) {
+    if (row.kind === "group" || row.kind === "sub") { flush(); cur = row.label; out.push(row); continue; }
+    if (row.kind === "subtotal" || row.kind === "net" || row.kind === "npm") { flush(); cur = null; out.push(row); continue; }
+    out.push(row);
+  }
+  flush();
+  return out;
+}
+
+function computeBudgetRows(linesMap, salesByMonth, showArchived) {
+  const customLines = Object.entries(linesMap)
+    .filter(([, v]) => v.is_custom)
+    .map(([k, v]) => ({ line_key: k, label: v.label || k, section: v.section, hidden: v.hidden }));
+  const structure = buildMergedStructure(customLines);
   const val = {}; // key -> { budget, actuals:{m:n}, total }
   const get = k => val[k] || { budget: 0, actuals: emptyActuals(), total: 0 };
   const out = [];
-  for (const row of BUDGET_STRUCTURE) {
+  for (const row of structure) {
     if (row.kind === "group" || row.kind === "sub" || row.kind === "spacer") { out.push({ ...row }); continue; }
 
     if (row.kind === "input") {
@@ -2465,15 +2491,22 @@ function computeBudgetRows(linesMap, salesByMonth) {
       if (row.autoActual && salesByMonth) for (const m of BUDGET_MONTHS) actuals[m] = salesByMonth[m] || 0;
       const total = BUDGET_MONTHS.reduce((a, m) => a + (Number(actuals[m]) || 0), 0);
       const r = { budget: Number(stored.monthly_budget) || 0, actuals, total };
+      // Archived (deleted) lines are excluded from every subtotal; shown greyed
+      // only when "show archived" is on, never added to `val`.
+      if (stored.hidden) {
+        if (showArchived) out.push({ ...row, ...r, archived: true });
+        continue;
+      }
       val[row.key] = r;
       out.push({ ...row, ...r });
       continue;
     }
 
     if (row.kind === "subtotal") {
+      const memberKeys = [...row.members, ...customLines.filter(c => SECTION_TO_SUBTOTAL[c.section] === row.key).map(c => c.line_key)];
       const actuals = emptyActuals();
       let budget = 0;
-      for (const mk of row.members) { budget += get(mk).budget; for (const m of BUDGET_MONTHS) actuals[m] += get(mk).actuals[m]; }
+      for (const mk of memberKeys) { budget += get(mk).budget; for (const m of BUDGET_MONTHS) actuals[m] += get(mk).actuals[m]; }
       const total = BUDGET_MONTHS.reduce((a, m) => a + actuals[m], 0);
       const r = { budget, actuals, total };
       val[row.key] = r;
@@ -2537,6 +2570,12 @@ function BudgetPage({ currentUser, salesEntries, isEditor }) {
   const [showAudit, setShowAudit] = useState(false);
   const [editing, setEditing] = useState(null);     // `${key}:${month}` or `${key}:budget`
   const [editVal, setEditVal] = useState("");
+  const [showArchived, setShowArchived] = useState(false);
+  const [addOpen, setAddOpen] = useState(false);
+  const [newLabel, setNewLabel] = useState("");
+  const [newSection, setNewSection] = useState(BUDGET_ADDABLE_SECTIONS[0].label);
+  const [hasHidden, setHasHidden] = useState(true);   // budget_lines.hidden column present?
+  const [hasCustom, setHasCustom] = useState(true);   // budget_lines.is_custom/label/section present?
 
   async function loadAll() {
     setLoading(true);
@@ -2549,8 +2588,17 @@ function BudgetPage({ currentUser, salesEntries, isEditor }) {
     if (lnRes.error && /does not exist|schema cache|relation/i.test(lnRes.error.message || "")) {
       setSetupNeeded(true); setLoading(false); return null;
     }
+    // Detect which optional columns exist so the app degrades gracefully if a
+    // migration hasn't been run yet (delete needs `hidden`; add-line needs
+    // `is_custom`/`label`/`section`).
+    const [hidProbe, cusProbe] = await Promise.all([
+      supabase.from("budget_lines").select("hidden").limit(1),
+      supabase.from("budget_lines").select("is_custom").limit(1),
+    ]);
+    setHasHidden(!hidProbe.error);
+    setHasCustom(!cusProbe.error);
     const map = {};
-    for (const row of lnRes.data || []) map[row.line_key] = { id: row.id, monthly_budget: Number(row.monthly_budget), actuals: row.actuals || {} };
+    for (const row of lnRes.data || []) map[row.line_key] = { id: row.id, monthly_budget: Number(row.monthly_budget), actuals: row.actuals || {}, hidden: !!row.hidden, is_custom: !!row.is_custom, label: row.label, section: row.section };
     const ms = {};
     for (const row of msRes.data || []) ms[row.month] = row.checked;
     const vis = {};
@@ -2596,9 +2644,11 @@ function BudgetPage({ currentUser, salesEntries, isEditor }) {
     return m;
   }, [salesEntries, year]);
 
-  const rows = computeBudgetRows(lines, salesByMonth);
+  const rows = computeBudgetRows(lines, salesByMonth, isEditor && showArchived);
   const visibleRows = isEditor ? rows : filterBudgetForStaff(rows, visibility);
   const net = rows.find(r => r.key === "net_profit") || { total: 0, budget: 0 };
+  const archivedCount = Object.values(lines).filter(l => l.hidden).length;
+  const labelOf = key => BUDGET_LABELS[key] || lines[key]?.label || key;
 
   function mkAudit(line_key, field, oldV, newV, month = null) {
     return { line_key, field, year, month, old_value: String(oldV), new_value: String(newV), user_id: currentUser.id, user_name: currentUser.name };
@@ -2616,22 +2666,31 @@ function BudgetPage({ currentUser, salesEntries, isEditor }) {
     setEditVal(cur === 0 ? "" : String(cur));
   }
 
+  // Preserve custom-line metadata on every upsert (PostgREST upsert can wipe
+  // columns that aren't included in the payload).
+  function lineMeta(ln) {
+    const o = {};
+    if (hasHidden) o.hidden = !!ln.hidden;
+    if (hasCustom) { o.is_custom = !!ln.is_custom; o.label = ln.label ?? null; o.section = ln.section ?? null; }
+    return o;
+  }
+
   async function saveEdit(key, which) {
     const ln = lines[key] || { monthly_budget: 0, actuals: emptyActuals() };
     const newNum = Number(editVal) || 0;
     let payload, oldV;
     if (which === "budget") {
       oldV = ln.monthly_budget || 0;
-      payload = { year, line_key: key, monthly_budget: newNum, actuals: ln.actuals || {} };
+      payload = { year, line_key: key, monthly_budget: newNum, actuals: ln.actuals || {}, ...lineMeta(ln) };
     } else {
       oldV = ln.actuals?.[which] ?? 0;
-      payload = { year, line_key: key, monthly_budget: ln.monthly_budget || 0, actuals: { ...(ln.actuals || {}), [which]: newNum } };
+      payload = { year, line_key: key, monthly_budget: ln.monthly_budget || 0, actuals: { ...(ln.actuals || {}), [which]: newNum }, ...lineMeta(ln) };
     }
     setEditing(null);
     if (newNum === oldV) return;
     const { data, error } = await supabase.from("budget_lines").upsert(payload, { onConflict: "year,line_key" }).select().single();
     if (error) { console.error("[budget save]", error); alert("Save failed: " + error.message); return; }
-    setLines(prev => ({ ...prev, [key]: { id: data.id, monthly_budget: data.monthly_budget, actuals: data.actuals || {} } }));
+    setLines(prev => ({ ...prev, [key]: { ...prev[key], id: data.id, monthly_budget: data.monthly_budget, actuals: data.actuals || {} } }));
     logAudit([mkAudit(key, which === "budget" ? "budget" : "actual", oldV, newNum, which === "budget" ? null : which)]);
   }
 
@@ -2649,6 +2708,47 @@ function BudgetPage({ currentUser, salesEntries, isEditor }) {
     if (error) { console.error(error); alert("Visibility update failed: " + error.message); return; }
     setVisibility(prev => ({ ...prev, [key]: next }));
     logAudit([mkAudit(key, "visibility", cur ? "visible" : "hidden", next ? "visible" : "hidden")]);
+  }
+
+  async function setLineHidden(key, hidden) {
+    const ln = lines[key] || { monthly_budget: 0, actuals: emptyActuals() };
+    const { data, error } = await supabase.from("budget_lines")
+      .upsert({ year, line_key: key, monthly_budget: ln.monthly_budget || 0, actuals: ln.actuals || {}, ...lineMeta(ln), hidden }, { onConflict: "year,line_key" })
+      .select().single();
+    if (error) {
+      console.error("[budget delete]", error);
+      alert(/hidden/i.test(error.message || "")
+        ? "This needs a one-time DB update: run the budget_lines ALTER from chat in Supabase, then try again."
+        : "Action failed: " + error.message);
+      return;
+    }
+    setLines(prev => ({ ...prev, [key]: { ...prev[key], id: data.id, hidden: !!data.hidden } }));
+    logAudit([mkAudit(key, hidden ? "delete" : "restore", hidden ? "active" : "archived", hidden ? "removed" : "active")]);
+  }
+
+  function deleteLine(key, label) {
+    if (window.confirm(`Remove "${label}" from the budget?\n\nIt will be excluded from all totals. You can restore it anytime via "Show archived".`)) {
+      setLineHidden(key, true);
+    }
+  }
+
+  async function addCustomLine() {
+    const label = newLabel.trim();
+    if (!label) { alert("Give the line a name."); return; }
+    const key = `custom_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+    const { data, error } = await supabase.from("budget_lines")
+      .upsert({ year, line_key: key, monthly_budget: 0, actuals: emptyActuals(), is_custom: true, label, section: newSection, hidden: false }, { onConflict: "year,line_key" })
+      .select().single();
+    if (error) {
+      console.error("[budget add]", error);
+      alert(/is_custom|label|section/i.test(error.message || "")
+        ? "This needs a one-time DB update: run the budget_lines ALTER from chat in Supabase, then try again."
+        : "Add failed: " + error.message);
+      return;
+    }
+    setLines(prev => ({ ...prev, [key]: { id: data.id, monthly_budget: 0, actuals: data.actuals || {}, hidden: false, is_custom: true, label, section: newSection } }));
+    logAudit([mkAudit(key, "add_line", newSection, label)]);
+    setAddOpen(false); setNewLabel("");
   }
 
   function downloadExcel() {
@@ -2695,7 +2795,19 @@ function BudgetPage({ currentUser, salesEntries, isEditor }) {
     <div>
       <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 6 }}>
         <h2 style={{ fontSize: 22, fontWeight: 700, color: "#3a2a1a", margin: 0 }}>📒 SaltyORIGINS & Basics Budget {year}</h2>
-        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          {isEditor && hasCustom && (
+            <button onClick={() => setAddOpen(o => !o)} title="Add a new line item"
+              style={{ background: "#c4704a", color: "#fff", border: "1px solid transparent", borderRadius: 8, padding: "6px 10px", cursor: "pointer", fontSize: 13, fontFamily: "inherit", fontWeight: 600, lineHeight: "normal" }}>
+              ➕ Add line
+            </button>
+          )}
+          {isEditor && archivedCount > 0 && (
+            <button onClick={() => setShowArchived(s => !s)} title="Show or hide removed lines"
+              style={{ background: showArchived ? "#fde8d8" : "#fff", color: "#7a6a5a", border: "1px solid #e0d5cc", borderRadius: 8, padding: "6px 10px", cursor: "pointer", fontSize: 13, fontFamily: "inherit" }}>
+              {showArchived ? "Hide archived" : `Show archived (${archivedCount})`}
+            </button>
+          )}
           <button onClick={downloadExcel} title="Download the whole budget as an Excel file"
             style={{ display: "flex", alignItems: "center", gap: 6, background: "#1e7a46", color: "#fff", border: "1px solid transparent", borderRadius: 8, padding: "6px 10px", cursor: "pointer", fontSize: 13, fontFamily: "inherit", fontWeight: 600, lineHeight: "normal" }}>
             ⬇ Excel
@@ -2705,10 +2817,37 @@ function BudgetPage({ currentUser, salesEntries, isEditor }) {
           </select>
         </div>
       </div>
+
+      {isEditor && addOpen && (
+        <div style={{ background: "#fff", borderRadius: 12, padding: "16px 18px", boxShadow: "0 2px 12px rgba(0,0,0,0.06)", margin: "8px 0 14px", display: "flex", gap: 10, alignItems: "flex-end", flexWrap: "wrap" }}>
+          <div style={{ flex: "1 1 240px" }}>
+            <label style={{ fontSize: 11, color: "#9a8a7a", fontWeight: 700, display: "block", marginBottom: 4 }}>NEW LINE NAME</label>
+            <input autoFocus value={newLabel} onChange={e => setNewLabel(e.target.value)} onKeyDown={e => e.key === "Enter" && addCustomLine()} placeholder="e.g. Influencer Marketing"
+              style={{ width: "100%", padding: "8px 10px", borderRadius: 8, border: "1px solid #e0d5cc", fontSize: 13, fontFamily: "inherit", boxSizing: "border-box" }} />
+          </div>
+          <div style={{ flex: "0 1 230px" }}>
+            <label style={{ fontSize: 11, color: "#9a8a7a", fontWeight: 700, display: "block", marginBottom: 4 }}>UNDER SECTION</label>
+            <select value={newSection} onChange={e => setNewSection(e.target.value)}
+              style={{ width: "100%", padding: "8px 10px", borderRadius: 8, border: "1px solid #e0d5cc", fontSize: 13, fontFamily: "inherit", background: "#fff", cursor: "pointer" }}>
+              {BUDGET_ADDABLE_SECTIONS.map(s => <option key={s.label} value={s.label}>{s.label}</option>)}
+            </select>
+          </div>
+          <button onClick={addCustomLine} style={{ background: "#c4704a", color: "#fff", border: "none", borderRadius: 8, padding: "9px 16px", cursor: "pointer", fontSize: 13, fontWeight: 600 }}>Add</button>
+          <button onClick={() => { setAddOpen(false); setNewLabel(""); }} style={{ background: "#f0ebe4", color: "#7a6a5a", border: "none", borderRadius: 8, padding: "9px 14px", cursor: "pointer", fontSize: 13 }}>Cancel</button>
+        </div>
+      )}
       <p style={{ color: "#9a8a7a", fontSize: 13, marginBottom: 16 }}>
         Monthly Budgeted target vs actuals per month, with live Net Profit (RM).{" "}
-        {isEditor ? "Click any cell to edit · click a month header to mark it checked/good · 👁 toggles staff visibility." : "Showing the lines shared with the team."}
+        {isEditor ? "Click any cell to edit · click a month header to mark it checked/good · 👁 staff visibility · 🗑 remove · ➕ add line." : "Showing the lines shared with the team."}
       </p>
+      {isEditor && (!hasHidden || !hasCustom) && (
+        <div style={{ background: "#fff8ee", border: "1px solid #f0dcc0", borderRadius: 10, padding: "10px 14px", marginBottom: 16, fontSize: 12.5, color: "#8a6a3a" }}>
+          ⚙️ To enable {[!hasHidden && "remove/restore", !hasCustom && "add custom lines"].filter(Boolean).join(" and ")}, run this once in Supabase → SQL Editor:
+          <code style={{ display: "block", background: "#fff", border: "1px solid #eee", borderRadius: 6, padding: "8px 10px", marginTop: 6, color: "#5a4a3a", whiteSpace: "pre-wrap" }}>
+            alter table budget_lines add column if not exists hidden boolean not null default false;{"\n"}alter table budget_lines add column if not exists is_custom boolean not null default false;{"\n"}alter table budget_lines add column if not exists label text;{"\n"}alter table budget_lines add column if not exists section text;
+          </code>
+        </div>
+      )}
 
       {/* SUMMARY */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 14, marginBottom: 18 }}>
@@ -2758,14 +2897,24 @@ function BudgetPage({ currentUser, salesEntries, isEditor }) {
               const rowBg = isNet ? "#fdf6f1" : row.emphasis ? "#fbf9f7" : isComputed ? "#fcfaf8" : "#fff";
 
               return (
-                <tr key={row.key} style={{ background: rowBg, borderTop: emph ? "1px solid #eadfd5" : "1px solid #f6f1ec" }}>
-                  <td style={{ ...stickyLabel({ background: rowBg }), padding: cellPad, color: emph ? "#3a2a1a" : "#5a4a3a", fontWeight: emph ? 700 : 400 }}>
-                    {isEditor && row.key && !isComputed && (
-                      <button title={visibility[row.key] ? "Visible to staff" : "Hidden from staff"} onClick={() => toggleVisibility(row.key)}
-                        style={{ marginRight: 6, border: "none", background: "transparent", cursor: "pointer", fontSize: 12, opacity: visibility[row.key] ? 1 : 0.4 }}>
-                        {visibility[row.key] ? "👁" : "🚫"}</button>
+                <tr key={row.key} style={{ background: row.archived ? "#f4f1ee" : rowBg, borderTop: emph ? "1px solid #eadfd5" : "1px solid #f6f1ec", opacity: row.archived ? 0.6 : 1 }}>
+                  <td style={{ ...stickyLabel({ background: row.archived ? "#f4f1ee" : rowBg }), padding: cellPad, color: emph ? "#3a2a1a" : "#5a4a3a", fontWeight: emph ? 700 : 400 }}>
+                    {isEditor && row.key && !isComputed && !row.archived && (
+                      <>
+                        <button title={visibility[row.key] ? "Visible to staff" : "Hidden from staff"} onClick={() => toggleVisibility(row.key)}
+                          style={{ marginRight: 4, border: "none", background: "transparent", cursor: "pointer", fontSize: 12, opacity: visibility[row.key] ? 1 : 0.4 }}>
+                          {visibility[row.key] ? "👁" : "🚫"}</button>
+                        {hasHidden && <button title="Remove this line (excluded from totals; restorable)" onClick={() => deleteLine(row.key, row.label)}
+                          style={{ marginRight: 6, border: "none", background: "transparent", cursor: "pointer", fontSize: 12, opacity: 0.55 }}>🗑</button>}
+                      </>
                     )}
-                    {row.label}{row.autoActual && <span title="Actuals auto-linked from Scoreboard Sales Closed" style={{ marginLeft: 5, color: "#c4704a" }}>🔗</span>}
+                    {isEditor && row.archived && (
+                      <button title="Restore this line" onClick={() => setLineHidden(row.key, false)}
+                        style={{ marginRight: 6, border: "1px solid #cdbfb3", background: "#fff", borderRadius: 6, cursor: "pointer", fontSize: 11, padding: "1px 7px", color: "#7a6a5a" }}>↩ Restore</button>
+                    )}
+                    <span style={{ textDecoration: row.archived ? "line-through" : "none" }}>{row.label}</span>
+                    {row.custom && <span title="Custom line" style={{ marginLeft: 5, fontSize: 10, color: "#c4704a", background: "#fde8d8", padding: "1px 5px", borderRadius: 99 }}>custom</span>}
+                    {row.autoActual && <span title="Actuals auto-linked from Scoreboard Sales Closed" style={{ marginLeft: 5, color: "#c4704a" }}>🔗</span>}
                   </td>
 
                   {/* Budget */}
@@ -2826,10 +2975,13 @@ function BudgetPage({ currentUser, salesEntries, isEditor }) {
                   <span style={{ fontWeight: 700, color: "#3a2a1a" }}>{a.user_name || "—"}</span>
                   <span style={{ color: "#7a6a5a" }}>
                     {a.field === "month_status" ? <>marked <strong>{a.month} {a.year}</strong> {a.new_value}</>
-                      : a.field === "visibility" ? <>set <strong>{BUDGET_LABELS[a.line_key] || a.line_key}</strong> {a.new_value}</>
-                      : <>changed <strong>{BUDGET_LABELS[a.line_key] || a.line_key}</strong>{a.month ? ` · ${a.month}` : " · budget"}</>}
+                      : a.field === "visibility" ? <>set <strong>{labelOf(a.line_key)}</strong> {a.new_value}</>
+                      : a.field === "add_line" ? <>added line <strong>{a.new_value}</strong> under {a.old_value}</>
+                      : a.field === "delete" ? <>removed <strong>{labelOf(a.line_key)}</strong></>
+                      : a.field === "restore" ? <>restored <strong>{labelOf(a.line_key)}</strong></>
+                      : <>changed <strong>{labelOf(a.line_key)}</strong>{a.month ? ` · ${a.month}` : " · budget"}</>}
                   </span>
-                  {a.field !== "month_status" && a.field !== "visibility" && <span style={{ color: "#9a8a7a" }}>{bFmt(a.old_value)} → {bFmt(a.new_value)}</span>}
+                  {["budget", "actual"].includes(a.field) && <span style={{ color: "#9a8a7a" }}>{bFmt(a.old_value)} → {bFmt(a.new_value)}</span>}
                   <span style={{ marginLeft: "auto", color: "#b0a294", fontSize: 11 }}>{budgetAuditTime(a.created_at)}</span>
                 </div>
               ))}
