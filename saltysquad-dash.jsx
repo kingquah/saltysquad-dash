@@ -2655,7 +2655,14 @@ function BudgetPage({ currentUser, salesEntries, isEditor }) {
   }
   async function logAudit(rowsToLog) {
     if (!rowsToLog.length) return;
-    const { data } = await supabase.from("budget_audit").insert(rowsToLog).select();
+    const { data, error } = await supabase.from("budget_audit").insert(rowsToLog).select();
+    if (error) {
+      console.error("[budget audit] write failed:", error);
+      if (/row-level security/i.test(error.message || "")) {
+        alert("Audit trail isn't recording yet. Run this once in Supabase → SQL Editor:\n\nalter table budget_audit disable row level security;");
+      }
+      return;
+    }
     if (data) setAudit(prev => [...data, ...prev]);
   }
 
