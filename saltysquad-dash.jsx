@@ -734,6 +734,19 @@ function ScoreboardPage({ currentUser, users, isAdmin, onSalesEntriesChanged }) 
                   );
                 }); })()}
               </tbody>
+              <tfoot>
+                {(() => {
+                  const filtered = entries.filter(e => (filterCategory === "all" || e.category === filterCategory) && (filterUser === "all" || String(e.user_id) === filterUser));
+                  const total = filtered.reduce((s, e) => s + Number(e.amount || 0), 0);
+                  return (
+                    <tr style={{ background: "#faf7f3", borderTop: "2px solid #ece3da" }}>
+                      <td style={{ padding: "12px 16px", fontWeight: 800, color: "#3a2a1a" }} colSpan={4}>Total ({filtered.length} {filtered.length === 1 ? "entry" : "entries"})</td>
+                      <td style={{ padding: "12px 16px", textAlign: "right", fontWeight: 800, color: "#3a2a1a" }}>{fmtRM(total)}</td>
+                      {isAdmin && <td />}
+                    </tr>
+                  );
+                })()}
+              </tfoot>
             </table>
           </div>
         )}
