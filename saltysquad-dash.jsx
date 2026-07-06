@@ -500,6 +500,7 @@ function ScoreboardPage({ currentUser, users, isAdmin, onSalesEntriesChanged }) 
   const [dateTo, setDateTo] = useState(todayStr);
   const [filterCategory, setFilterCategory] = useState("all");
   const [filterUser, setFilterUser] = useState("all");
+  const [breakdownCat, setBreakdownCat] = useState("all"); // Per Person Breakdown category filter
 
   const [showForm, setShowForm] = useState(false);
   const [editingEntry, setEditingEntry] = useState(null);
@@ -565,11 +566,14 @@ function ScoreboardPage({ currentUser, users, isAdmin, onSalesEntriesChanged }) 
 
   const byUser = {};
   for (const e of entries) {
+    if (breakdownCat !== "all" && e.category !== breakdownCat) continue;
     const uid = String(e.user_id);
     if (!byUser[uid]) byUser[uid] = { entries: [], total: 0 };
     byUser[uid].entries.push(e);
     byUser[uid].total += Number(e.amount) || 0;
   }
+  // Team total for "% of team" — relative to the breakdown's selected category.
+  const breakdownTotal = Object.values(byUser).reduce((s, d) => s + d.total, 0);
 
   function openAddForm() {
     setEditingEntry(null);
@@ -802,12 +806,18 @@ function ScoreboardPage({ currentUser, users, isAdmin, onSalesEntriesChanged }) 
       {/* Per Person Breakdown — admin only */}
       {isAdmin && (
         <div style={{ background: "#fff", borderRadius: 14, border: "1.5px solid #f0ebe4", overflow: "hidden", marginBottom: 32 }}>
-          <div style={{ padding: "16px 20px", borderBottom: "1.5px solid #f0ebe4" }}>
+          <div style={{ padding: "16px 20px", borderBottom: "1.5px solid #f0ebe4", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10 }}>
             <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: "#3a2a1a" }}>Per Person Breakdown</h3>
+            <select value={breakdownCat} onChange={e => setBreakdownCat(e.target.value)}
+              style={{ padding: "4px 10px", borderRadius: 8, border: "1.5px solid #e8ddd5", fontSize: 12, color: "#3a2a1a", background: "#fff", fontWeight: 600, cursor: "pointer" }}>
+              {["all", "sales_closed", "pipeline", "invoice", "quotation"].map(cat => (
+                <option key={cat} value={cat}>{cat === "all" ? "All categories" : (CATEGORY_DISPLAY[cat] || cat)}</option>
+              ))}
+            </select>
           </div>
           {users.filter(u => byUser[String(u.id)]).map(u => {
             const data = byUser[String(u.id)];
-            const pct = grandTotal > 0 ? Math.round((data.total / grandTotal) * 100) : 0;
+            const pct = breakdownTotal > 0 ? Math.round((data.total / breakdownTotal) * 100) : 0;
             const expanded = !!expandedUsers[u.id];
             return (
               <div key={u.id} style={{ borderBottom: "1px solid #f0ebe4" }}>
@@ -866,7 +876,9 @@ function ScoreboardPage({ currentUser, users, isAdmin, onSalesEntriesChanged }) 
             );
           })}
           {Object.keys(byUser).length === 0 && (
-            <div style={{ padding: "32px 20px", textAlign: "center", color: "#b0a09a", fontSize: 14 }}>No entries for this period.</div>
+            <div style={{ padding: "32px 20px", textAlign: "center", color: "#b0a09a", fontSize: 14 }}>
+              No {breakdownCat === "all" ? "" : (CATEGORY_DISPLAY[breakdownCat] || breakdownCat) + " "}entries for this period.
+            </div>
           )}
         </div>
       )}

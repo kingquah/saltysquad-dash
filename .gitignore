@@ -6,3 +6,5 @@ dist/
 .env.*
 .vercel
 .env*
+backups/
+.service-role.local
