@@ -65,7 +65,7 @@ export const BUDGET_STRUCTURE = [
   { kind: "input", key: "filing",          label: "Filing Fee",             sign: -1, budget: 60,   actuals: r(60) },
   { kind: "input", key: "tax_agent",       label: "Tax Agent Fee",          sign: -1, budget: 200,  actuals: r(200) },
   { kind: "input", key: "audit",           label: "Audit Fee",              sign: -1, budget: 10000, actuals: rDec(500, 4500) },
-  { kind: "input", key: "stripe",          label: "Stripe Fee",             sign: -1, budget: 500,  actuals: r(500) },
+  { kind: "input", key: "stripe",          label: "Stripe Fee for Singapore", sign: -1, budget: 500,  actuals: r(500) },
   { kind: "input", key: "digital_mkt",     label: "Digital Marketing",      sign: -1, budget: 40000, actuals: r(3300) },
   { kind: "input", key: "ads_spend",       label: "Ads Spend",              sign: -1, budget: 4000, actuals: r(4000) },
   { kind: "input", key: "mkt_materials",   label: "Marketing Materials",    sign: -1, budget: 1500, actuals: r(1500) },
