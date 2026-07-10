@@ -2479,14 +2479,27 @@ function emptyActuals() {
 // auto-linked Total Sales actuals.
 // Splice editor-added custom lines into the fixed structure at the end of their
 // chosen section (before the next header / subtotal).
+// Custom lines normally render at the end of their section. To pin one directly
+// after a specific built-in line instead, map its line_key -> the static key it
+// should follow. (No reorder UI exists, so placement lives here.)
+const CUSTOM_LINE_ANCHOR = {
+  "custom_1783655968860_931": "stripe", // "Stripe Fees for Malaysia" sits right below "Stripe Fee for Singapore"
+};
+
 function buildMergedStructure(customLines) {
-  const bySection = {};
-  for (const c of customLines) (bySection[c.section] ||= []).push(c);
+  const mkCustom = c => ({ kind: "input", key: c.line_key, label: c.label, sign: -1, custom: true, section: c.section });
+  const bySection = {};   // section label -> custom lines flushed at section end
+  const anchored = {};    // static key -> custom lines pinned right after it
+  for (const c of customLines) {
+    const after = CUSTOM_LINE_ANCHOR[c.line_key];
+    if (after) (anchored[after] ||= []).push(c);
+    else (bySection[c.section] ||= []).push(c);
+  }
   const out = [];
   let cur = null;
   const flush = () => {
     if (cur && bySection[cur]) {
-      for (const c of bySection[cur]) out.push({ kind: "input", key: c.line_key, label: c.label, sign: -1, custom: true, section: c.section });
+      for (const c of bySection[cur]) out.push(mkCustom(c));
       bySection[cur] = null;
     }
   };
@@ -2494,6 +2507,7 @@ function buildMergedStructure(customLines) {
     if (row.kind === "group" || row.kind === "sub") { flush(); cur = row.label; out.push(row); continue; }
     if (row.kind === "subtotal" || row.kind === "net" || row.kind === "npm") { flush(); cur = null; out.push(row); continue; }
     out.push(row);
+    if (row.key && anchored[row.key]) { for (const c of anchored[row.key]) out.push(mkCustom(c)); }
   }
   flush();
   return out;
