@@ -1281,10 +1281,12 @@ const ROCKS_ARCHIVE_SQL = `create table if not exists rocks_archive (
   id         uuid primary key default gen_random_uuid(),
   task       text not null,
   dept       text,
+  details    jsonb,
   user_id    integer,
   user_name  text,
   created_at timestamptz not null default now()
 );
+alter table rocks_archive add column if not exists details jsonb;
 create index if not exists rocks_archive_created_idx on rocks_archive (created_at desc);
 alter table rocks_archive enable row level security;
 drop policy if exists anon_full_access on rocks_archive;
@@ -1337,6 +1339,7 @@ function RocksPage({ currentUser, isAdmin }) {
   const [auditMissing, setAuditMissing] = useState(false);
   const [archives, setArchives] = useState([]);
   const [archiveMissing, setArchiveMissing] = useState(false);
+  const [openArchive, setOpenArchive] = useState(null);
   const saveTimer = useRef(null);
   const canManage = isAdmin;                       // admin/supervisor
   const canProgress = true;                        // any logged-in user
@@ -1373,9 +1376,12 @@ function RocksPage({ currentUser, isAdmin }) {
   }
   async function archiveTask(catId, rock) {
     if (!window.confirm("Congrats on landing your task! Proceed to log this into our Task Complete Archives")) return;
-    const { data, error } = await supabase.from("rocks_archive")
-      .insert({ task: rock.item, dept: catOf(catId).name, user_id: currentUser?.id ?? null, user_name: currentUser?.name ?? null })
-      .select().single();
+    const base = { task: rock.item, dept: catOf(catId).name, user_id: currentUser?.id ?? null, user_name: currentUser?.name ?? null };
+    let { data, error } = await supabase.from("rocks_archive").insert({ ...base, details: rock }).select().single();
+    if (error && /details|column|PGRST204|42703/i.test((error.message || "") + " " + (error.code || ""))) {
+      // `details` column not added yet — fall back to a summary-only insert.
+      ({ data, error } = await supabase.from("rocks_archive").insert(base).select().single());
+    }
     if (error) { if (missingTable(error)) { setArchiveMissing(true); setShowAudit(true); alert("Archive table isn't set up yet — see the Audit Trail panel for the one-time SQL."); } else { alert("Archive failed: " + error.message); } return; }
     if (data) setArchives(prev => [data, ...prev]);
     // Remove the line from its department — it now lives in the Complete Archives.
@@ -1576,15 +1582,33 @@ function RocksPage({ currentUser, isAdmin }) {
                 </div>
               ) : archives.length === 0 ? (
                 <div style={{ color: "#9a8a7a", fontSize: 13 }}>No tasks archived yet — hit the ✅ on a completed rock.</div>
-              ) : archives.map(a => (
-                <div key={a.id} style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "baseline", padding: "8px 0", borderBottom: "1px solid #f8f5f2", fontSize: 12.5 }}>
-                  <span>✅</span>
-                  <span style={{ fontWeight: 700, color: "#3a2a1a" }}>{a.task}</span>
-                  {a.dept && <span style={{ fontSize: 11, color: "#7a6a5a", background: "#f0ebe4", borderRadius: 99, padding: "1px 8px" }}>{a.dept}</span>}
-                  <span style={{ color: "#9a8a7a" }}>· by {a.user_name || "—"}</span>
-                  <span style={{ marginLeft: "auto", color: "#b0a294", fontSize: 11 }}>{budgetAuditTime(a.created_at)}</span>
-                </div>
-              ))}
+              ) : archives.map(a => {
+                const d = a.details || {};
+                const hasDetails = d && (d.notes || d.pic || d.deadline || d.updates || d.remarks);
+                const open = openArchive === a.id;
+                return (
+                  <div key={a.id} style={{ borderBottom: "1px solid #f8f5f2" }}>
+                    <div onClick={() => hasDetails && setOpenArchive(open ? null : a.id)}
+                      style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "baseline", padding: "8px 0", fontSize: 12.5, cursor: hasDetails ? "pointer" : "default" }}>
+                      <span>✅</span>
+                      <span style={{ fontWeight: 700, color: "#3a2a1a" }}>{a.task}</span>
+                      {a.dept && <span style={{ fontSize: 11, color: "#7a6a5a", background: "#f0ebe4", borderRadius: 99, padding: "1px 8px" }}>{a.dept}</span>}
+                      <span style={{ color: "#9a8a7a" }}>· by {a.user_name || "—"}</span>
+                      {hasDetails && <span style={{ fontSize: 11, color: "#c4704a", fontWeight: 600 }}>{open ? "▲ hide details" : "▼ view details"}</span>}
+                      <span style={{ marginLeft: "auto", color: "#b0a294", fontSize: 11 }}>{budgetAuditTime(a.created_at)}</span>
+                    </div>
+                    {open && hasDetails && (
+                      <div style={{ background: "#faf7f3", borderRadius: 8, padding: "12px 14px", margin: "2px 0 10px", fontSize: 12.5, color: "#5a4a3a", lineHeight: 1.6 }}>
+                        {d.pic && <div><strong style={{ color: "#7a6a5a" }}>PIC:</strong> {d.pic}</div>}
+                        {d.deadline && <div><strong style={{ color: "#7a6a5a" }}>Est. Deadline:</strong> {fmtDeadline(d.deadline)}</div>}
+                        {d.notes && <div style={{ marginTop: 4 }}><strong style={{ color: "#7a6a5a" }}>What success looks like:</strong><br />{d.notes}</div>}
+                        {d.updates && <div style={{ marginTop: 4 }}><strong style={{ color: "#7a6a5a" }}>Updates / Progression:</strong><br />{d.updates}</div>}
+                        {d.remarks && <div style={{ marginTop: 4 }}><strong style={{ color: "#7a6a5a" }}>Remarks:</strong> {d.remarks}</div>}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </div>
         )}
