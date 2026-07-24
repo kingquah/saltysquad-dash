@@ -1,6 +1,7 @@
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo, Fragment } from "react";
 import { supabase } from "./supabase";
 import { BUDGET_STRUCTURE, BUDGET_MONTHS, BUDGET_INPUT_KEYS, BUDGET_LABELS, BUDGET_ADDABLE_SECTIONS, SECTION_TO_SUBTOTAL } from "./budget-data.js";
+import { DEFAULT_ROCKS } from "./rocks-seed.js";
 import * as XLSX from "xlsx";
 
 // ── STATIC / CONFIG DATA ──────────────────────────────────────────────────────
@@ -1053,7 +1054,7 @@ export default function App() {
     { id: "dashboard", label: "Dashboard", icon: "🏠" },
     { id: "leave", label: "Leave", icon: "🌴" },
     { id: "checklist", label: "Integrity", icon: "✅" },
-    { id: "sales", label: "Sales", icon: "📊" },
+    { id: "rocks", label: "Rocks", icon: "🪨" },
     ...(isAdmin ? [{ id: "budget", label: "Budget", icon: "📒" }] : []),
     { id: "docs", label: "Documents", icon: "📁" },
     { id: "scoreboard", label: "Scoreboard", icon: "🏆" },
@@ -1088,14 +1089,14 @@ export default function App() {
 
       {/* PAGE CONTENT */}
       <main className="main-content" style={{ flex: 1, padding: "28px 32px", maxWidth: 1200, width: "100%", margin: "0 auto" }}>
-        {page === "dashboard" && <DashboardPage currentUser={currentUser} users={users} leaveRequests={leaveRequests} checklists={checklists} sales={salesLive} isAdmin={isAdmin} setPage={setPage} onLeaveAction={handleLeaveAction} />}
+        {page === "dashboard" && <DashboardPage currentUser={currentUser} users={users} leaveRequests={leaveRequests} checklists={checklists} sales={salesLive} setSales={setSales} isAdmin={isAdmin} setPage={setPage} onLeaveAction={handleLeaveAction} />}
         {page === "leave" && <LeavePage currentUser={currentUser} users={users} setUsers={setUsers} leaveRequests={leaveRequests} setLeaveRequests={setLeaveRequests} isAdmin={isAdmin} onLeaveAction={handleLeaveAction} />}
 
         {page === "checklist" && <ChecklistPage currentUser={currentUser} users={users} checklists={checklists} setChecklists={setChecklists} isAdmin={isAdmin} />}
-        {page === "sales" && <SalesPage sales={salesLive} setSales={setSales} isAdmin={isAdmin} />}
         {page === "budget" && isAdmin && <BudgetPage currentUser={currentUser} salesEntries={salesEntries} isEditor={isAdmin} />}
         {page === "docs" && <DocsPage docModal={docModal} setDocModal={setDocModal} />}
         {page === "scoreboard" && <ScoreboardPage currentUser={currentUser} users={users} isAdmin={isAdmin} onSalesEntriesChanged={refreshSalesEntries} />}
+        {page === "rocks" && <RocksPage currentUser={currentUser} users={users} isAdmin={isAdmin} />}
         {page === "admin" && isAdmin && <AdminPage users={users} setUsers={setUsers} leaveRequests={leaveRequests} setLeaveRequests={setLeaveRequests} checklists={checklists} />}
       </main>
 
@@ -1233,11 +1234,342 @@ function TeamIntegritySection({ staffList, prevMonthKey, prevMonthName, prevYear
   );
 }
 
-function DashboardPage({ currentUser, users, leaveRequests, checklists, sales, isAdmin, setPage, onLeaveAction }) {
+// ── ROCKS PAGE ────────────────────────────────────────────────────────────────
+// 30-Day Rocks board — quarterly priorities grouped by department. Whole board
+// stored as one JSONB row (id=1) in rocks_board. Admins/supervisors edit
+// everything; any logged-in user can update the Progress + Energy fields.
+const rrid = () => Math.random().toString(36).slice(2, 9);
+// Per-department colour (soft tint + accent), cycled by position.
+const DEPT_COLORS = [
+  { bg: "#eaf1fb", accent: "#2f6fb0" }, // blue
+  { bg: "#e9f7ef", accent: "#27ae60" }, // green
+  { bg: "#fdefe8", accent: "#c4704a" }, // terracotta
+  { bg: "#f2ecfa", accent: "#8e44ad" }, // purple
+  { bg: "#e6f6f4", accent: "#16a085" }, // teal
+  { bg: "#fdf3e0", accent: "#e08a2a" }, // amber
+  { bg: "#fdeaf0", accent: "#d6557b" }, // pink
+];
+const deptColor = i => DEPT_COLORS[i % DEPT_COLORS.length];
+// Per-rock status marker.
+const ROCK_STATUS = {
+  complete:  { color: "#27ae60", label: "Complete" },
+  attention: { color: "#f39c12", label: "Needs attention" },
+  dropped:   { color: "#e74c3c", label: "Dropped" },
+};
+const ROCK_STATUS_ORDER = ["complete", "attention", "dropped"];
+const ROCKS_SQL = `create table if not exists rocks_board (
+  id         int primary key,
+  data       jsonb not null default '{}'::jsonb,
+  updated_at timestamptz not null default now()
+);
+alter table rocks_board enable row level security;
+drop policy if exists anon_full_access on rocks_board;
+create policy anon_full_access on rocks_board for all to anon, authenticated using (true) with check (true);`;
+const ROCKS_AUDIT_SQL = `create table if not exists rocks_audit (
+  id         uuid primary key default gen_random_uuid(),
+  detail     text not null,
+  user_id    integer,
+  user_name  text,
+  created_at timestamptz not null default now()
+);
+create index if not exists rocks_audit_created_idx on rocks_audit (created_at desc);
+alter table rocks_audit enable row level security;
+drop policy if exists anon_full_access on rocks_audit;
+create policy anon_full_access on rocks_audit for all to anon, authenticated using (true) with check (true);`;
+const ROCKS_FIELD_LABEL = { item: "title", notes: "success notes", pic: "PIC", deadline: "deadline", updates: "progress", remarks: "remarks", energy: "energy" };
+const rockClip = s => { const t = String(s || "").replace(/\s+/g, " ").trim(); return t.length > 40 ? t.slice(0, 40) + "…" : t; };
+
+const rockGrow = el => { if (el) { el.style.height = "auto"; el.style.height = Math.max(el.scrollHeight, 34) + "px"; } };
+
+// Inline click-to-edit field. Everyone/manager gating handled by `canEdit`.
+function Editable({ value, onSave, canEdit, placeholder = "—", multiline, type, style = {}, editStyle = {}, display }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value || "");
+  useEffect(() => { if (!editing) setDraft(value || ""); }, [value, editing]);
+  const commit = () => { setEditing(false); if (draft !== (value || "")) onSave(draft); };
+  const baseEdit = { width: "100%", font: "inherit", border: "1.5px solid #c4704a", borderRadius: 6, padding: "5px 7px", boxSizing: "border-box", outline: "none", ...editStyle };
+  if (editing && canEdit) {
+    if (multiline) return <textarea autoFocus defaultValue={draft} ref={rockGrow} onInput={e => { setDraft(e.target.value); rockGrow(e.target); }} onBlur={commit} onKeyDown={e => { if (e.key === "Escape") setEditing(false); }} style={{ ...baseEdit, resize: "none", overflow: "hidden", lineHeight: 1.5 }} />;
+    return <input autoFocus type={type || "text"} value={draft} onChange={e => setDraft(e.target.value)} onBlur={commit} onKeyDown={e => { if (e.key === "Enter") commit(); if (e.key === "Escape") setEditing(false); }} style={baseEdit} />;
+  }
+  const empty = !value;
+  return (
+    <span onDoubleClick={() => canEdit && setEditing(true)}
+      title={canEdit ? "Double-click to edit" : undefined}
+      style={{ whiteSpace: "pre-wrap", wordBreak: "break-word", cursor: canEdit ? "pointer" : "default", color: empty ? "#c0b5ae" : "inherit", ...style }}>
+      {empty ? placeholder : (display != null ? display : value)}
+    </span>
+  );
+}
+
+const PIC_COLORS = ["#c4704a", "#27ae60", "#2980b9", "#8e44ad", "#e67e22", "#16a085"];
+// Fixed, distinct colour per known PIC so no two teammates collide.
+const PIC_FIXED = { king: "#c4704a", puteri: "#8e44ad", leon: "#2980b9", wilson: "#27ae60", angeline: "#e67e22", adam: "#16a085", eric: "#d6557b", justin: "#2f6fb0" };
+const picColor = name => {
+  const k = String(name || "").trim().toLowerCase();
+  if (PIC_FIXED[k]) return PIC_FIXED[k];
+  return PIC_COLORS[[...k].reduce((a, c) => a + c.charCodeAt(0), 0) % PIC_COLORS.length];
+};
+function fmtDeadline(d) {
+  if (!d) return "";
+  const dt = new Date(d);
+  return isNaN(dt) ? d : dt.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+}
+
+function RocksPage({ currentUser, isAdmin }) {
+  const [board, setBoard] = useState(null);      // null = loading
+  const [tableMissing, setTableMissing] = useState(false);
+  const [audit, setAudit] = useState([]);
+  const [showAudit, setShowAudit] = useState(false);
+  const [auditMissing, setAuditMissing] = useState(false);
+  const saveTimer = useRef(null);
+  const canManage = isAdmin;                       // admin/supervisor
+  const canProgress = true;                        // any logged-in user
+  const missingTable = e => /does not exist|PGRST205|42P01|find the table|schema cache/i.test((e?.message || "") + " " + (e?.code || ""));
+
+  useEffect(() => { load(); loadAudit(); return () => clearTimeout(saveTimer.current); }, []);
+
+  async function load() {
+    const { data, error } = await supabase.from("rocks_board").select("data").eq("id", 1).maybeSingle();
+    if (error) {
+      if (missingTable(error)) { setTableMissing(true); return; }
+      console.error("[rocks load]", error);
+    }
+    if (data && data.data && Array.isArray(data.data.categories)) { setBoard(data.data); return; }
+    const seed = JSON.parse(JSON.stringify(DEFAULT_ROCKS));
+    setBoard(seed);
+    await supabase.from("rocks_board").upsert({ id: 1, data: seed }, { onConflict: "id" });
+  }
+
+  async function loadAudit() {
+    const { data, error } = await supabase.from("rocks_audit").select("*").order("created_at", { ascending: false }).limit(150);
+    if (error) { if (missingTable(error)) setAuditMissing(true); else console.error("[rocks audit load]", error); return; }
+    if (data) setAudit(data);
+  }
+  async function logRock(detail) {
+    const { data, error } = await supabase.from("rocks_audit").insert({ detail, user_id: currentUser?.id ?? null, user_name: currentUser?.name ?? null }).select().single();
+    if (error) { if (missingTable(error)) setAuditMissing(true); else console.error("[rocks audit]", error); return; }
+    if (data) setAudit(prev => [data, ...prev]);
+  }
+
+  function persist(next) {
+    setBoard(next);
+    clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(async () => {
+      const { error } = await supabase.from("rocks_board").upsert({ id: 1, data: next, updated_at: new Date().toISOString() }, { onConflict: "id" });
+      if (error) console.error("[rocks save]", error);
+    }, 300);
+  }
+
+  const catOf = id => board.categories.find(c => c.id === id) || {};
+  const rockOf = (catId, rockId) => (catOf(catId).rocks || []).find(r => r.id === rockId) || {};
+
+  const setHeader = (field, v) => { persist({ ...board, header: { ...board.header, [field]: v } }); logRock(`updated header · ${field}`); };
+  const setRock = (catId, rockId, field, v) => {
+    const item = rockOf(catId, rockId).item;
+    persist({ ...board, categories: board.categories.map(c => c.id !== catId ? c : { ...c, rocks: c.rocks.map(r => r.id !== rockId ? r : { ...r, [field]: v }) }) });
+    logRock(`updated ${ROCKS_FIELD_LABEL[field] || field} on "${rockClip(item)}"`);
+  };
+  const setStatus = (catId, rockId, status) => {
+    const item = rockOf(catId, rockId).item;
+    persist({ ...board, categories: board.categories.map(c => c.id !== catId ? c : { ...c, rocks: c.rocks.map(r => r.id !== rockId ? r : { ...r, status }) }) });
+    logRock(status ? `marked "${rockClip(item)}" as ${ROCK_STATUS[status].label}` : `cleared status on "${rockClip(item)}"`);
+  };
+  const renameCategory = (catId, name) => { const old = catOf(catId).name; persist({ ...board, categories: board.categories.map(c => c.id !== catId ? c : { ...c, name }) }); if (name && name !== old) logRock(`renamed department "${old}" → "${name}"`); };
+  const addRock = catId => { persist({ ...board, categories: board.categories.map(c => c.id !== catId ? c : { ...c, rocks: [...c.rocks, { id: rrid(), item: "New rock", notes: "", pic: "", deadline: "", energy: "", updates: "", remarks: "" }] }) }); logRock(`added a rock to ${catOf(catId).name}`); };
+  const deleteRock = (catId, rockId, item) => { if (window.confirm(`Delete rock "${item || "Untitled"}"?`)) { persist({ ...board, categories: board.categories.map(c => c.id !== catId ? c : { ...c, rocks: c.rocks.filter(r => r.id !== rockId) }) }); logRock(`deleted rock "${rockClip(item)}" from ${catOf(catId).name}`); } };
+  const addCategory = () => { persist({ ...board, categories: [...board.categories, { id: rrid(), name: "New Category", rocks: [] }] }); logRock("added a new department"); };
+  const deleteCategory = (catId, name, n) => { if (window.confirm(`Delete department "${name}" and its ${n} rock(s)?`)) { persist({ ...board, categories: board.categories.filter(c => c.id !== catId) }); logRock(`deleted department "${name}" (${n} rock${n === 1 ? "" : "s"})`); } };
+
+  if (tableMissing) {
+    return (
+      <div style={{ background: "#fff", borderRadius: 16, padding: "28px 30px", boxShadow: "0 2px 12px rgba(0,0,0,0.06)", maxWidth: 680 }}>
+        <h2 style={{ fontSize: 20, fontWeight: 700, color: "#3a2a1a", marginTop: 0 }}>🪨 One-time setup</h2>
+        <p style={{ color: "#7a6a5a", fontSize: 14, lineHeight: 1.6 }}>The Rocks board needs its tables. Open <strong>Supabase → SQL Editor</strong>, run this once, then reload:</p>
+        <pre style={{ background: "#faf7f3", border: "1px solid #ece3da", borderRadius: 8, padding: "12px 14px", fontSize: 12, overflowX: "auto", whiteSpace: "pre", color: "#5a4a3a" }}>{ROCKS_SQL + "\n\n" + ROCKS_AUDIT_SQL}</pre>
+      </div>
+    );
+  }
+  if (!board) return <div style={{ color: "#9a8a7a", padding: 40 }}>Loading board…</div>;
+
+  const H = board.header || {};
+  const fieldLabel = { fontSize: 11, fontWeight: 700, color: "#9a8a7a", textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 3 };
+
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", flexWrap: "wrap", gap: 10, marginBottom: 6 }}>
+        <h2 style={{ fontSize: 22, fontWeight: 700, color: "#3a2a1a", margin: 0 }}>🪨 30-Day Rocks</h2>
+      </div>
+      <p style={{ color: "#9a8a7a", fontSize: 13, marginBottom: 20 }}>
+        Quarterly priorities. {canManage ? "Double-click any field to edit." : "Double-click the Updates / Progression cell to add an update."}
+      </p>
+
+      {/* ── HEADER BLOCK ── */}
+      <div style={{ background: "#fff", borderRadius: 16, padding: "18px 22px", boxShadow: "0 2px 12px rgba(0,0,0,0.06)", marginBottom: 22, borderLeft: "4px solid #c4704a" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 16, marginBottom: 14 }}>
+          <div><div style={fieldLabel}>Theme of 2026</div><div style={{ fontSize: 15, fontWeight: 600, color: "#3a2a1a" }}><Editable value={H.theme} canEdit={canManage} placeholder="Set theme…" onSave={v => setHeader("theme", v)} /></div></div>
+          <div><div style={fieldLabel}>Break Even (BEP)</div><div style={{ fontSize: 15, fontWeight: 600, color: "#3a2a1a" }}><Editable value={H.bep} canEdit={canManage} onSave={v => setHeader("bep", v)} /></div></div>
+          <div><div style={fieldLabel}>Goal</div><div style={{ fontSize: 15, fontWeight: 700, color: "#27ae60" }}><Editable value={H.goal} canEdit={canManage} onSave={v => setHeader("goal", v)} /></div></div>
+        </div>
+        <div style={fieldLabel}>Rules</div>
+        <div style={{ fontSize: 13, color: "#5a4a3a", lineHeight: 1.6 }}><Editable value={H.rules} canEdit={canManage} multiline placeholder="House rules…" onSave={v => setHeader("rules", v)} /></div>
+      </div>
+
+      {/* ── ROCKS TABLE ── */}
+      {(() => {
+        const COLS = [
+          { key: "item",     label: "Items",                         w: 230, multiline: true,  manage: true },
+          { key: "notes",    label: "Notes (what success looks like)", w: 250, multiline: true,  manage: true },
+          { key: "pic",      label: "PIC",                           w: 90,  multiline: false, manage: true },
+          { key: "deadline", label: "Est. Deadline",                 w: 130, multiline: false, manage: true },
+          { key: "updates",  label: "Updates / Progression",         w: 270, multiline: true,  manage: false },
+          { key: "remarks",  label: "Remarks",                       w: 170, multiline: true,  manage: true },
+        ];
+        const STATUS_W = 80;
+        const totalCols = COLS.length + 1 + (canManage ? 1 : 0); // +1 for Status
+        const th = { padding: "10px 12px", textAlign: "left", fontSize: 11, fontWeight: 700, color: "#9a8a7a", textTransform: "uppercase", letterSpacing: 0.4, borderBottom: "2px solid #f0ebe4", whiteSpace: "nowrap" };
+        const td = { padding: "10px 12px", fontSize: 13, color: "#3a2a1a", verticalAlign: "top", borderBottom: "1px solid #f5f0ec", lineHeight: 1.5 };
+        const StatusDots = ({ rock, catId }) => (
+          <div style={{ display: "flex", gap: 5, alignItems: "center" }}>
+            {ROCK_STATUS_ORDER.map(k => {
+              const on = rock.status === k, col = ROCK_STATUS[k].color;
+              return <button key={k} title={ROCK_STATUS[k].label} disabled={!canProgress}
+                onClick={() => setStatus(catId, rock.id, on ? "" : k)}
+                style={{ width: 16, height: 16, borderRadius: "50%", padding: 0, background: on ? col : "transparent", border: `2px solid ${col}`, opacity: on ? 1 : 0.35, cursor: canProgress ? "pointer" : "default" }} />;
+            })}
+          </div>
+        );
+        return (
+          <div style={{ background: "#fff", borderRadius: 16, boxShadow: "0 2px 12px rgba(0,0,0,0.06)", overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
+            <table style={{ borderCollapse: "collapse", width: "100%", minWidth: COLS.reduce((s, c) => s + c.w, 0) + STATUS_W + (canManage ? 44 : 0) }}>
+              <thead>
+                <tr>
+                  <th style={{ ...th, minWidth: STATUS_W }}>Status</th>
+                  {COLS.map(c => <th key={c.key} style={{ ...th, minWidth: c.w }}>{c.label}</th>)}
+                  {canManage && <th style={{ ...th, minWidth: 44 }} />}
+                </tr>
+              </thead>
+              <tbody>
+                {board.categories.map((cat, ci) => { const dc = deptColor(ci); return (
+                  <Fragment key={cat.id}>
+                    <tr>
+                      <td colSpan={totalCols} style={{ background: dc.bg, padding: "10px 12px", borderBottom: `1px solid ${dc.accent}22`, borderTop: `1px solid ${dc.accent}22`, borderLeft: `4px solid ${dc.accent}` }}>
+                        <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+                          <span style={{ width: 7, height: 7, borderRadius: "50%", background: dc.accent }} />
+                          <span style={{ fontSize: 13, fontWeight: 800, color: dc.accent, textTransform: "uppercase", letterSpacing: 0.5 }}>
+                            <Editable value={cat.name} canEdit={canManage} onSave={v => renameCategory(cat.id, v)} style={{ color: dc.accent }} editStyle={{ fontWeight: 800 }} />
+                          </span>
+                          <span style={{ fontSize: 11, color: dc.accent, background: `${dc.accent}1a`, borderRadius: 99, padding: "1px 8px", fontWeight: 700 }}>{cat.rocks.length}</span>
+                          {canManage && <button title="Delete department" onClick={() => deleteCategory(cat.id, cat.name, cat.rocks.length)} style={{ border: "none", background: "none", cursor: "pointer", color: dc.accent, opacity: 0.6, fontSize: 13, marginLeft: 4 }}>✕</button>}
+                        </span>
+                      </td>
+                    </tr>
+                    {cat.rocks.map(r => { const st = ROCK_STATUS[r.status]; const dropped = r.status === "dropped"; return (
+                      <tr key={r.id} style={st ? { background: st.color + "0d" } : {}}>
+                        <td style={{ ...td, background: st ? st.color + "0d" : undefined, borderLeft: `4px solid ${st ? st.color : "transparent"}` }}>
+                          <StatusDots rock={r} catId={cat.id} />
+                        </td>
+                        {COLS.map(c => {
+                          const editable = c.manage ? canManage : canProgress;
+                          let content;
+                          if (c.key === "pic") {
+                            content = <span style={{ display: "inline-block", fontSize: 12, fontWeight: 700, color: "#fff", background: picColor(r.pic), borderRadius: 99, padding: "2px 9px" }}>
+                              <Editable value={r.pic} canEdit={canManage} placeholder="PIC" onSave={v => setRock(cat.id, r.id, "pic", v)} style={{ color: "#fff" }} editStyle={{ width: 80, color: "#3a2a1a" }} />
+                            </span>;
+                          } else if (c.key === "deadline") {
+                            content = canManage
+                              ? <Editable value={r.deadline} display={fmtDeadline(r.deadline)} canEdit type="date" placeholder="set date" onSave={v => setRock(cat.id, r.id, "deadline", v)} editStyle={{ width: 140 }} />
+                              : <span style={{ whiteSpace: "nowrap" }}>{fmtDeadline(r.deadline) || "—"}</span>;
+                          } else {
+                            content = <Editable value={r[c.key]} canEdit={editable} multiline={c.multiline}
+                              placeholder={c.key === "updates" ? "Add update…" : editable ? "—" : "—"}
+                              onSave={v => setRock(cat.id, r.id, c.key, v)}
+                              style={c.key === "item" ? { fontWeight: 600, ...(dropped ? { textDecoration: "line-through", color: "#b0a09a" } : {}) } : c.key === "updates" ? {} : { color: "#5a4a3a" }} />;
+                          }
+                          return <td key={c.key} style={{ ...td, ...(c.key === "updates" ? { background: "#fffdf9" } : {}) }}>{content}</td>;
+                        })}
+                        {canManage && <td style={{ ...td, textAlign: "center" }}><button title="Delete rock" onClick={() => deleteRock(cat.id, r.id, r.item)} style={{ border: "none", background: "none", cursor: "pointer", color: "#c0b5ae", fontSize: 13 }}>🗑</button></td>}
+                      </tr>
+                    ); })}
+                    {canManage && (
+                      <tr>
+                        <td colSpan={totalCols} style={{ padding: "8px 12px", borderBottom: "1px solid #f5f0ec" }}>
+                          <button onClick={() => addRock(cat.id)} style={{ background: "none", border: "none", cursor: "pointer", color: "#7a6a5a", fontSize: 13, fontWeight: 600, padding: 0 }}>+ Add rock</button>
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
+                ); })}
+              </tbody>
+            </table>
+          </div>
+      )})()}
+      <div style={{ height: 16 }} />
+
+      {canManage && <button onClick={addCategory} style={{ background: "#c4704a", color: "#fff", border: "none", borderRadius: 8, padding: "9px 18px", cursor: "pointer", fontSize: 13, fontWeight: 600 }}>+ Add department</button>}
+
+      {/* AUDIT TRAIL */}
+      <div style={{ background: "#fff", borderRadius: 16, padding: "18px 22px", boxShadow: "0 2px 12px rgba(0,0,0,0.06)", marginTop: 22 }}>
+        <button onClick={() => setShowAudit(s => !s)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 15, fontWeight: 700, color: "#3a2a1a", padding: 0, display: "flex", alignItems: "center", gap: 8 }}>
+          🕒 Audit Trail <span style={{ fontSize: 12, color: "#9a8a7a", fontWeight: 400 }}>({audit.length})</span>
+          <span style={{ fontSize: 12, color: "#c4704a" }}>{showAudit ? "▲ hide" : "▼ show"}</span>
+        </button>
+        {showAudit && (
+          <div style={{ marginTop: 14 }}>
+            {auditMissing ? (
+              <div style={{ color: "#7a6a5a", fontSize: 13, lineHeight: 1.6 }}>
+                The audit trail needs a table. Run this once in <strong>Supabase → SQL Editor</strong>, then reload:
+                <pre style={{ background: "#faf7f3", border: "1px solid #ece3da", borderRadius: 8, padding: "12px 14px", fontSize: 11.5, overflowX: "auto", whiteSpace: "pre", color: "#5a4a3a", marginTop: 10 }}>{ROCKS_AUDIT_SQL}</pre>
+              </div>
+            ) : audit.length === 0 ? (
+              <div style={{ color: "#9a8a7a", fontSize: 13 }}>No edits recorded yet.</div>
+            ) : audit.map(a => (
+              <div key={a.id} style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "baseline", padding: "8px 0", borderBottom: "1px solid #f8f5f2", fontSize: 12.5 }}>
+                <span style={{ fontWeight: 700, color: "#3a2a1a" }}>{a.user_name || "—"}</span>
+                <span style={{ color: "#7a6a5a" }}>{a.detail}</span>
+                <span style={{ marginLeft: "auto", color: "#b0a294", fontSize: 11 }}>{budgetAuditTime(a.created_at)}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function DashboardPage({ currentUser, users, leaveRequests, checklists, sales, setSales, isAdmin, setPage, onLeaveAction }) {
   const now = new Date();
   const currentYear = now.getFullYear();
   const currentMonthIdx = now.getMonth();
   const currentMonthName = MONTHS[currentMonthIdx];
+
+  // Only the superadmin (admin role) may edit monthly targets — not supervisors.
+  const isSuperAdmin = currentUser.role === "admin";
+  const [editingTargetMonth, setEditingTargetMonth] = useState(null);
+  const [targetDraft, setTargetDraft] = useState("");
+
+  function startEditTarget(row) {
+    setEditingTargetMonth(row.m);
+    setTargetDraft(String(row.target ?? ""));
+  }
+
+  async function saveTarget(row) {
+    setEditingTargetMonth(null);
+    const newTarget = Number(targetDraft);
+    if (!Number.isFinite(newTarget) || newTarget === row.target) return;
+    if (row.id) {
+      const { error } = await supabase.from("sales_targets").update({ target: newTarget }).eq("id", row.id);
+      if (error) { alert("Save failed: " + error.message); return; }
+      setSales(prev => prev.map(s => s.id !== row.id ? s : { ...s, target: newTarget }));
+    } else {
+      // No DB row for this month yet — create one for the current year.
+      const { data, error } = await supabase.from("sales_targets")
+        .insert({ month: row.m, year: currentYear, target: newTarget, achieved: 0 })
+        .select().single();
+      if (error) { alert("Save failed: " + error.message); return; }
+      setSales(prev => [...prev, mapSales(data)]);
+    }
+  }
   const pendingLeave = leaveRequests.filter(l => l.status === "Pending" && (isAdmin || l.userId === currentUser.id));
   // Exclude admins from Team Integrity grid — only supervisors and staff
   const staffList = users.filter(u => u.role !== "admin");
@@ -1288,7 +1620,7 @@ function DashboardPage({ currentUser, users, leaveRequests, checklists, sales, i
     else if (isCurr)  { statusIcon = "🔄"; statusLabel = "In Progress"; statusColor = "#3498db"; }
     else if (hit)     { statusIcon = "✅"; statusLabel = "Hit";         statusColor = "#27ae60"; }
     else              { statusIcon = "❌"; statusLabel = "Missed";      statusColor = "#e74c3c"; }
-    return { m, target, achieved, pctVal, hit, isPast, isCurr, isFuture, statusIcon, statusLabel, statusColor };
+    return { m, id: row?.id, target, achieved, pctVal, hit, isPast, isCurr, isFuture, statusIcon, statusLabel, statusColor };
   });
 
   const totalTarget   = allMonths.reduce((sum, r) => sum + r.target, 0);
@@ -1428,7 +1760,22 @@ function DashboardPage({ currentUser, users, leaveRequests, checklists, sales, i
                       {r.isCurr && <span style={{ fontSize: 10, background: "#fde8d8", color: "#c4704a", borderRadius: 99, padding: "1px 6px", marginLeft: 6, fontWeight: 700 }}>NOW</span>}
                     </td>
                     <td style={{ padding: "11px 12px", textAlign: "right", color: "#3a2a1a" }}>
-                      RM {r.target.toLocaleString()}
+                      {editingTargetMonth === r.m ? (
+                        <input
+                          autoFocus type="number" value={targetDraft}
+                          onChange={e => setTargetDraft(e.target.value)}
+                          onBlur={() => saveTarget(r)}
+                          onKeyDown={e => { if (e.key === "Enter") saveTarget(r); if (e.key === "Escape") setEditingTargetMonth(null); }}
+                          style={{ width: 110, textAlign: "right", border: "1.5px solid #c4704a", borderRadius: 6, padding: "3px 6px", fontSize: 13, fontFamily: "inherit", outline: "none" }}
+                        />
+                      ) : isSuperAdmin ? (
+                        <span onClick={() => startEditTarget(r)} title="Click to edit target"
+                          style={{ cursor: "pointer", borderBottom: "1px dashed #cdbfb3" }}>
+                          RM {r.target.toLocaleString()}
+                        </span>
+                      ) : (
+                        <>RM {r.target.toLocaleString()}</>
+                      )}
                     </td>
                     <td style={{ padding: "11px 12px", textAlign: "right", fontWeight: r.achieved > 0 ? 600 : 400, color: r.isFuture ? "#b0a09a" : r.hit ? "#27ae60" : r.achieved > 0 ? "#e74c3c" : "#b0a09a" }}>
                       {r.isFuture ? "—" : `RM ${r.achieved.toLocaleString()}`}
