@@ -1277,6 +1277,18 @@ create index if not exists rocks_audit_created_idx on rocks_audit (created_at de
 alter table rocks_audit enable row level security;
 drop policy if exists anon_full_access on rocks_audit;
 create policy anon_full_access on rocks_audit for all to anon, authenticated using (true) with check (true);`;
+const ROCKS_ARCHIVE_SQL = `create table if not exists rocks_archive (
+  id         uuid primary key default gen_random_uuid(),
+  task       text not null,
+  dept       text,
+  user_id    integer,
+  user_name  text,
+  created_at timestamptz not null default now()
+);
+create index if not exists rocks_archive_created_idx on rocks_archive (created_at desc);
+alter table rocks_archive enable row level security;
+drop policy if exists anon_full_access on rocks_archive;
+create policy anon_full_access on rocks_archive for all to anon, authenticated using (true) with check (true);`;
 const ROCKS_FIELD_LABEL = { item: "title", notes: "success notes", pic: "PIC", deadline: "deadline", updates: "progress", remarks: "remarks", energy: "energy" };
 const rockClip = s => { const t = String(s || "").replace(/\s+/g, " ").trim(); return t.length > 40 ? t.slice(0, 40) + "…" : t; };
 
@@ -1323,12 +1335,14 @@ function RocksPage({ currentUser, isAdmin }) {
   const [audit, setAudit] = useState([]);
   const [showAudit, setShowAudit] = useState(false);
   const [auditMissing, setAuditMissing] = useState(false);
+  const [archives, setArchives] = useState([]);
+  const [archiveMissing, setArchiveMissing] = useState(false);
   const saveTimer = useRef(null);
   const canManage = isAdmin;                       // admin/supervisor
   const canProgress = true;                        // any logged-in user
   const missingTable = e => /does not exist|PGRST205|42P01|find the table|schema cache/i.test((e?.message || "") + " " + (e?.code || ""));
 
-  useEffect(() => { load(); loadAudit(); return () => clearTimeout(saveTimer.current); }, []);
+  useEffect(() => { load(); loadAudit(); loadArchives(); return () => clearTimeout(saveTimer.current); }, []);
 
   async function load() {
     const { data, error } = await supabase.from("rocks_board").select("data").eq("id", 1).maybeSingle();
@@ -1351,6 +1365,21 @@ function RocksPage({ currentUser, isAdmin }) {
     const { data, error } = await supabase.from("rocks_audit").insert({ detail, user_id: currentUser?.id ?? null, user_name: currentUser?.name ?? null }).select().single();
     if (error) { if (missingTable(error)) setAuditMissing(true); else console.error("[rocks audit]", error); return; }
     if (data) setAudit(prev => [data, ...prev]);
+  }
+  async function loadArchives() {
+    const { data, error } = await supabase.from("rocks_archive").select("*").order("created_at", { ascending: false }).limit(200);
+    if (error) { if (missingTable(error)) setArchiveMissing(true); else console.error("[rocks archive load]", error); return; }
+    if (data) setArchives(data);
+  }
+  async function archiveTask(catId, rock) {
+    if (!window.confirm("Congrats on landing your task! Proceed to log this into our Task Complete Archives")) return;
+    const { data, error } = await supabase.from("rocks_archive")
+      .insert({ task: rock.item, dept: catOf(catId).name, user_id: currentUser?.id ?? null, user_name: currentUser?.name ?? null })
+      .select().single();
+    if (error) { if (missingTable(error)) { setArchiveMissing(true); setShowAudit(true); alert("Archive table isn't set up yet — see the Audit Trail panel for the one-time SQL."); } else { alert("Archive failed: " + error.message); } return; }
+    if (data) setArchives(prev => [data, ...prev]);
+    setStatus(catId, rock.id, "complete");   // mark green on the board too
+    logRock(`archived "${rockClip(rock.item)}" to Task Complete Archives`);
   }
 
   function persist(next) {
@@ -1387,7 +1416,7 @@ function RocksPage({ currentUser, isAdmin }) {
       <div style={{ background: "#fff", borderRadius: 16, padding: "28px 30px", boxShadow: "0 2px 12px rgba(0,0,0,0.06)", maxWidth: 680 }}>
         <h2 style={{ fontSize: 20, fontWeight: 700, color: "#3a2a1a", marginTop: 0 }}>🪨 One-time setup</h2>
         <p style={{ color: "#7a6a5a", fontSize: 14, lineHeight: 1.6 }}>The Rocks board needs its tables. Open <strong>Supabase → SQL Editor</strong>, run this once, then reload:</p>
-        <pre style={{ background: "#faf7f3", border: "1px solid #ece3da", borderRadius: 8, padding: "12px 14px", fontSize: 12, overflowX: "auto", whiteSpace: "pre", color: "#5a4a3a" }}>{ROCKS_SQL + "\n\n" + ROCKS_AUDIT_SQL}</pre>
+        <pre style={{ background: "#faf7f3", border: "1px solid #ece3da", borderRadius: 8, padding: "12px 14px", fontSize: 12, overflowX: "auto", whiteSpace: "pre", color: "#5a4a3a" }}>{ROCKS_SQL + "\n\n" + ROCKS_AUDIT_SQL + "\n\n" + ROCKS_ARCHIVE_SQL}</pre>
       </div>
     );
   }
@@ -1426,8 +1455,8 @@ function RocksPage({ currentUser, isAdmin }) {
           { key: "updates",  label: "Updates / Progression",         w: 270, multiline: true,  manage: false },
           { key: "remarks",  label: "Remarks",                       w: 170, multiline: true,  manage: true },
         ];
-        const STATUS_W = 80;
-        const totalCols = COLS.length + 1 + (canManage ? 1 : 0); // +1 for Status
+        const STATUS_W = 80, ARCHIVE_W = 64;
+        const totalCols = COLS.length + 2 + (canManage ? 1 : 0); // +2 for Status & Archive
         const th = { padding: "10px 12px", textAlign: "left", fontSize: 11, fontWeight: 700, color: "#9a8a7a", textTransform: "uppercase", letterSpacing: 0.4, borderBottom: "2px solid #f0ebe4", whiteSpace: "nowrap" };
         const td = { padding: "10px 12px", fontSize: 13, color: "#3a2a1a", verticalAlign: "top", borderBottom: "1px solid #f5f0ec", lineHeight: 1.5 };
         const StatusDots = ({ rock, catId }) => (
@@ -1442,11 +1471,12 @@ function RocksPage({ currentUser, isAdmin }) {
         );
         return (
           <div style={{ background: "#fff", borderRadius: 16, boxShadow: "0 2px 12px rgba(0,0,0,0.06)", overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
-            <table style={{ borderCollapse: "collapse", width: "100%", minWidth: COLS.reduce((s, c) => s + c.w, 0) + STATUS_W + (canManage ? 44 : 0) }}>
+            <table style={{ borderCollapse: "collapse", width: "100%", minWidth: COLS.reduce((s, c) => s + c.w, 0) + STATUS_W + ARCHIVE_W + (canManage ? 44 : 0) }}>
               <thead>
                 <tr>
                   <th style={{ ...th, minWidth: STATUS_W }}>Status</th>
                   {COLS.map(c => <th key={c.key} style={{ ...th, minWidth: c.w }}>{c.label}</th>)}
+                  <th style={{ ...th, minWidth: ARCHIVE_W, textAlign: "center" }}>Done</th>
                   {canManage && <th style={{ ...th, minWidth: 44 }} />}
                 </tr>
               </thead>
@@ -1489,6 +1519,9 @@ function RocksPage({ currentUser, isAdmin }) {
                           }
                           return <td key={c.key} style={{ ...td, ...(c.key === "updates" ? { background: "#fffdf9" } : {}) }}>{content}</td>;
                         })}
+                        <td style={{ ...td, textAlign: "center" }}>
+                          <button title="Mark done & archive" disabled={!canProgress} onClick={() => archiveTask(cat.id, r)} style={{ border: "none", background: "none", cursor: canProgress ? "pointer" : "default", fontSize: 17, lineHeight: 1, padding: 2 }}>✅</button>
+                        </td>
                         {canManage && <td style={{ ...td, textAlign: "center" }}><button title="Delete rock" onClick={() => deleteRock(cat.id, r.id, r.item)} style={{ border: "none", background: "none", cursor: "pointer", color: "#c0b5ae", fontSize: 13 }}>🗑</button></td>}
                       </tr>
                     ); })}
@@ -1531,6 +1564,27 @@ function RocksPage({ currentUser, isAdmin }) {
                 <span style={{ marginLeft: "auto", color: "#b0a294", fontSize: 11 }}>{budgetAuditTime(a.created_at)}</span>
               </div>
             ))}
+
+            {/* ── Task Complete Archives ── */}
+            <div style={{ marginTop: 22, paddingTop: 16, borderTop: "2px solid #f0ebe4" }}>
+              <div style={{ fontSize: 14, fontWeight: 800, color: "#27ae60", marginBottom: 10 }}>🏆 Task Complete Archives <span style={{ fontSize: 12, color: "#9a8a7a", fontWeight: 400 }}>({archives.length})</span></div>
+              {archiveMissing ? (
+                <div style={{ color: "#7a6a5a", fontSize: 13, lineHeight: 1.6 }}>
+                  The archive needs a table. Run this once in <strong>Supabase → SQL Editor</strong>, then reload:
+                  <pre style={{ background: "#faf7f3", border: "1px solid #ece3da", borderRadius: 8, padding: "12px 14px", fontSize: 11.5, overflowX: "auto", whiteSpace: "pre", color: "#5a4a3a", marginTop: 10 }}>{ROCKS_ARCHIVE_SQL}</pre>
+                </div>
+              ) : archives.length === 0 ? (
+                <div style={{ color: "#9a8a7a", fontSize: 13 }}>No tasks archived yet — hit the ✅ on a completed rock.</div>
+              ) : archives.map(a => (
+                <div key={a.id} style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "baseline", padding: "8px 0", borderBottom: "1px solid #f8f5f2", fontSize: 12.5 }}>
+                  <span>✅</span>
+                  <span style={{ fontWeight: 700, color: "#3a2a1a" }}>{a.task}</span>
+                  {a.dept && <span style={{ fontSize: 11, color: "#7a6a5a", background: "#f0ebe4", borderRadius: 99, padding: "1px 8px" }}>{a.dept}</span>}
+                  <span style={{ color: "#9a8a7a" }}>· by {a.user_name || "—"}</span>
+                  <span style={{ marginLeft: "auto", color: "#b0a294", fontSize: 11 }}>{budgetAuditTime(a.created_at)}</span>
+                </div>
+              ))}
+            </div>
           </div>
         )}
       </div>
