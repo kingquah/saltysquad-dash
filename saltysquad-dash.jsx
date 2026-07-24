@@ -1378,8 +1378,9 @@ function RocksPage({ currentUser, isAdmin }) {
       .select().single();
     if (error) { if (missingTable(error)) { setArchiveMissing(true); setShowAudit(true); alert("Archive table isn't set up yet — see the Audit Trail panel for the one-time SQL."); } else { alert("Archive failed: " + error.message); } return; }
     if (data) setArchives(prev => [data, ...prev]);
-    setStatus(catId, rock.id, "complete");   // mark green on the board too
-    logRock(`archived "${rockClip(rock.item)}" to Task Complete Archives`);
+    // Remove the line from its department — it now lives in the Complete Archives.
+    persist({ ...board, categories: board.categories.map(c => c.id !== catId ? c : { ...c, rocks: c.rocks.filter(r => r.id !== rock.id) }) });
+    logRock(`completed & archived "${rockClip(rock.item)}" to Task Complete Archives`);
   }
 
   function persist(next) {
