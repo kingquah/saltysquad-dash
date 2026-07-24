@@ -1015,6 +1015,7 @@ export default function App() {
   if (!currentUser) return <Login users={users} onLogin={u => { rememberUser(u); setCurrentUser(u); setPage("dashboard"); }} />;
 
   const isAdmin = currentUser.role === "admin" || currentUser.role === "supervisor";
+  const isSuperAdmin = currentUser.role === "admin"; // founder only
 
   // Dashboard + Sales tab read "Achieved" live from Scoreboard sales_closed entries.
   const salesLive = mergeAchievedFromEntries(sales, salesEntries);
@@ -1058,7 +1059,7 @@ export default function App() {
     ...(isAdmin ? [{ id: "budget", label: "Budget", icon: "📒" }] : []),
     { id: "docs", label: "Documents", icon: "📁" },
     { id: "scoreboard", label: "Scoreboard", icon: "🏆" },
-    ...(isAdmin ? [{ id: "admin", label: "Admin", icon: "⚙️" }] : []),
+    ...(isSuperAdmin ? [{ id: "admin", label: "Admin", icon: "⚙️" }] : []),
   ];
 
   return (
@@ -1097,7 +1098,7 @@ export default function App() {
         {page === "docs" && <DocsPage docModal={docModal} setDocModal={setDocModal} />}
         {page === "scoreboard" && <ScoreboardPage currentUser={currentUser} users={users} isAdmin={isAdmin} onSalesEntriesChanged={refreshSalesEntries} />}
         {page === "rocks" && <RocksPage currentUser={currentUser} users={users} isAdmin={isAdmin} />}
-        {page === "admin" && isAdmin && <AdminPage users={users} setUsers={setUsers} leaveRequests={leaveRequests} setLeaveRequests={setLeaveRequests} checklists={checklists} />}
+        {page === "admin" && isSuperAdmin && <AdminPage users={users} setUsers={setUsers} leaveRequests={leaveRequests} setLeaveRequests={setLeaveRequests} checklists={checklists} />}
       </main>
 
       {/* BOTTOM TAB BAR — mobile only, controlled by CSS */}
