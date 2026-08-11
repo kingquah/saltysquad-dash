@@ -2194,10 +2194,13 @@ function ChecklistPage({ currentUser, users, checklists, setChecklists, isAdmin 
   const [selectedMonth, setSelectedMonth] = useState(monthKey);
   const [tab, setTab] = useState("fill");
 
-  const viewUserId = Number(isAdmin ? selectedUser : currentUser.id);
+  // Only the founder (admin role) may view/edit other people's checklists and
+  // set Director's Scoring. Supervisors & staff see and edit only their own.
+  const isSuperAdmin = currentUser.role === "admin";
+  const viewUserId = Number(isSuperAdmin ? selectedUser : currentUser.id);
   const cl = checklists[viewUserId]?.[selectedMonth] || { checks: {}, remarks: "", directorScore: null };
   const isCurrentUserMonth = viewUserId === currentUser.id && selectedMonth === monthKey;
-  const canEdit = isAdmin || isCurrentUserMonth;
+  const canEdit = isSuperAdmin || isCurrentUserMonth;
 
   // Ref always points to latest checklists — prevents stale closure in async functions
   const checklistsRef = useRef(checklists);
@@ -2292,7 +2295,7 @@ function ChecklistPage({ currentUser, users, checklists, setChecklists, isAdmin 
     setSaveStatus("saving");
     const latestChecks = checklistsRef.current[viewUserId]?.[selectedMonth]?.checks || {};
     const uid = Number(viewUserId);
-    const dirScoreVal = isAdmin ? (localDirScore === "" ? null : Number(localDirScore)) : (cl.directorScore ?? null);
+    const dirScoreVal = isSuperAdmin ? (localDirScore === "" ? null : Number(localDirScore)) : (cl.directorScore ?? null);
     const payload = { user_id: uid, month_key: selectedMonth, checks: latestChecks, remarks: localRemarks, director_score: dirScoreVal };
     // ── DEBUG ──────────────────────────────────────────────────────────────
     console.log("[handleSaveSubmit] month_key:", selectedMonth);
@@ -2341,14 +2344,14 @@ function ChecklistPage({ currentUser, users, checklists, setChecklists, isAdmin 
 
       <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
         <button onClick={() => setTab("fill")} style={{ background: tab==="fill"?"#c4704a":"#fff", color: tab==="fill"?"#fff":"#7a6a5a", border:"1.5px solid "+(tab==="fill"?"#c4704a":"#e8ddd5"), borderRadius:8, padding:"7px 18px", cursor:"pointer", fontSize:13, fontWeight:600 }}>My Checklist</button>
-        {isAdmin && <button onClick={() => setTab("overview")} style={{ background: tab==="overview"?"#c4704a":"#fff", color: tab==="overview"?"#fff":"#7a6a5a", border:"1.5px solid "+(tab==="overview"?"#c4704a":"#e8ddd5"), borderRadius:8, padding:"7px 18px", cursor:"pointer", fontSize:13, fontWeight:600 }}>Bird's Eye View</button>}
+        {isSuperAdmin && <button onClick={() => setTab("overview")} style={{ background: tab==="overview"?"#c4704a":"#fff", color: tab==="overview"?"#fff":"#7a6a5a", border:"1.5px solid "+(tab==="overview"?"#c4704a":"#e8ddd5"), borderRadius:8, padding:"7px 18px", cursor:"pointer", fontSize:13, fontWeight:600 }}>Bird's Eye View</button>}
       </div>
 
       {tab === "fill" && (
         <div className="checklist-layout" style={{ display: "grid", gridTemplateColumns: "1fr 300px", gap: 20, alignItems: "start" }}>
           <div>
             <div style={{ display: "flex", gap: 10, marginBottom: 20, flexWrap: "wrap" }}>
-              {isAdmin && (
+              {isSuperAdmin && (
                 <select value={selectedUser} onChange={e => setSelectedUser(Number(e.target.value))} style={{ ...inputStyle, width: "auto" }}>
                   {staffList.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
                 </select>
@@ -2357,7 +2360,7 @@ function ChecklistPage({ currentUser, users, checklists, setChecklists, isAdmin 
                 {monthOptions.map(m => <option key={m.key} value={m.key}>{m.label}</option>)}
               </select>
               {!canEdit && <span style={{ fontSize: 12, color: "#9a8a7a", alignSelf: "center" }}>👁 View only</span>}
-              {isAdmin && viewUserId !== currentUser.id && <span style={{ fontSize: 12, background: "#fde8d8", color: "#c4704a", padding: "3px 8px", borderRadius: 6, fontWeight: 600, alignSelf: "center" }}>Admin editing</span>}
+              {isSuperAdmin && viewUserId !== currentUser.id && <span style={{ fontSize: 12, background: "#fde8d8", color: "#c4704a", padding: "3px 8px", borderRadius: 6, fontWeight: 600, alignSelf: "center" }}>Admin editing</span>}
             </div>
 
             {CHECKLIST_SECTIONS.map(section => (
@@ -2392,7 +2395,7 @@ function ChecklistPage({ currentUser, users, checklists, setChecklists, isAdmin 
             {/* Director's Scoring — admin can edit, staff can view */}
             <div style={{ background: "#fff", borderRadius: 14, padding: "18px 20px", boxShadow: "0 1px 6px rgba(0,0,0,0.05)", borderLeft: "4px solid #c0622a" }}>
               <div style={{ fontWeight: 700, color: "#c0622a", fontSize: 14, marginBottom: 12 }}>⭐ Director's Scoring</div>
-              {isAdmin ? (
+              {isSuperAdmin ? (
                 <div>
                   <label style={{ fontSize: 12, fontWeight: 700, color: "#7a6a5a", textTransform: "uppercase", letterSpacing: 0.5, display: "block", marginBottom: 6 }}>Score (0–10)</label>
                   <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
@@ -2452,7 +2455,7 @@ function ChecklistPage({ currentUser, users, checklists, setChecklists, isAdmin 
             {canEdit && (() => {
               const monthLabel = monthOptions.find(m => m.key === selectedMonth)?.label || selectedMonth;
               const staffName = users.find(u => u.id === viewUserId)?.name;
-              const isAdminOnBehalf = isAdmin && viewUserId !== currentUser.id;
+              const isAdminOnBehalf = isSuperAdmin && viewUserId !== currentUser.id;
               const successMsg = isAdminOnBehalf
                 ? `✅ Saved for ${staffName} — ${monthLabel}`
                 : `✅ Checklist saved for ${monthLabel}!`;
@@ -2500,7 +2503,7 @@ function ChecklistPage({ currentUser, users, checklists, setChecklists, isAdmin 
 
               {/* Combined overall score */}
               {(() => {
-                const dirVal = isAdmin && localDirScore !== "" ? Number(localDirScore) : cl.directorScore;
+                const dirVal = isSuperAdmin && localDirScore !== "" ? Number(localDirScore) : cl.directorScore;
                 const overall = combinedPct(cl.checks, dirVal ?? null);
                 return dirVal != null ? (
                   <div style={{ background: "#fdf4f0", border: "1.5px solid #f0c8b0", borderRadius: 10, padding: "10px 14px", marginTop: 8 }}>
@@ -2530,7 +2533,7 @@ function ChecklistPage({ currentUser, users, checklists, setChecklists, isAdmin 
         </div>
       )}
 
-      {tab === "overview" && isAdmin && (
+      {tab === "overview" && isSuperAdmin && (
         <OverviewTab
           checklists={checklists}
           setChecklists={setChecklists}
