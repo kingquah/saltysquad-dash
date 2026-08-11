@@ -2344,7 +2344,7 @@ function ChecklistPage({ currentUser, users, checklists, setChecklists, isAdmin 
 
       <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
         <button onClick={() => setTab("fill")} style={{ background: tab==="fill"?"#c4704a":"#fff", color: tab==="fill"?"#fff":"#7a6a5a", border:"1.5px solid "+(tab==="fill"?"#c4704a":"#e8ddd5"), borderRadius:8, padding:"7px 18px", cursor:"pointer", fontSize:13, fontWeight:600 }}>My Checklist</button>
-        {isSuperAdmin && <button onClick={() => setTab("overview")} style={{ background: tab==="overview"?"#c4704a":"#fff", color: tab==="overview"?"#fff":"#7a6a5a", border:"1.5px solid "+(tab==="overview"?"#c4704a":"#e8ddd5"), borderRadius:8, padding:"7px 18px", cursor:"pointer", fontSize:13, fontWeight:600 }}>Bird's Eye View</button>}
+        <button onClick={() => setTab("overview")} style={{ background: tab==="overview"?"#c4704a":"#fff", color: tab==="overview"?"#fff":"#7a6a5a", border:"1.5px solid "+(tab==="overview"?"#c4704a":"#e8ddd5"), borderRadius:8, padding:"7px 18px", cursor:"pointer", fontSize:13, fontWeight:600 }}>Bird's Eye View</button>
       </div>
 
       {tab === "fill" && (
@@ -2533,7 +2533,7 @@ function ChecklistPage({ currentUser, users, checklists, setChecklists, isAdmin 
         </div>
       )}
 
-      {tab === "overview" && isSuperAdmin && (
+      {tab === "overview" && (
         <OverviewTab
           checklists={checklists}
           setChecklists={setChecklists}
