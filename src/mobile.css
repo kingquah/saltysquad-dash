@@ -53,10 +53,13 @@ input, textarea, select {
     border-top: 2px solid #f0ebe4;
     padding: 6px 4px calc(6px + env(safe-area-inset-bottom));
     z-index: 200;
-    -webkit-justify-content: space-around;
-    justify-content: space-around;
+    -webkit-justify-content: flex-start;
+    justify-content: flex-start;
     -webkit-align-items: center;
     align-items: center;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    gap: 2px;
   }
   .bottom-tab-btn {
     display: -webkit-flex;
@@ -72,8 +75,9 @@ input, textarea, select {
     border: none;
     cursor: pointer;
     padding: 6px 8px;
-    min-width: 48px;
+    min-width: 64px;
     min-height: 52px;
+    flex: 0 0 auto;
     font-family: Georgia, serif;
     border-radius: 12px;
     transition: background 0.15s;
@@ -89,6 +93,10 @@ input, textarea, select {
     font-weight: 600;
     color: #9a8a7a;
     letter-spacing: 0.2px;
+    max-width: 72px;
+    text-align: center;
+    line-height: 1.15;
+    white-space: normal;
   }
   .bottom-tab-btn.active .bottom-tab-label { color: #c4704a; }
 
