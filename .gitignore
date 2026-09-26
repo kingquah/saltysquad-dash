@@ -1,4 +1,5 @@
 node_modules/
+.traffic-board-render.mjs
 dist/
 .DS_Store
 *.local

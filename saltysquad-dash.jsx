@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useMemo, Fragment } from "react";
 import { supabase } from "./supabase";
 import { BUDGET_STRUCTURE, BUDGET_MONTHS, BUDGET_INPUT_KEYS, BUDGET_LABELS, BUDGET_ADDABLE_SECTIONS, SECTION_TO_SUBTOTAL } from "./budget-data.js";
 import { DEFAULT_ROCKS } from "./rocks-seed.js";
+import { TrafficBoardPage, LiveCashIndicator } from "./traffic-board.jsx";
 import * as XLSX from "xlsx";
 
 // ── STATIC / CONFIG DATA ──────────────────────────────────────────────────────
@@ -1056,6 +1057,7 @@ export default function App() {
     { id: "leave", label: "Leave", icon: "🌴" },
     { id: "checklist", label: "Integrity", icon: "✅" },
     { id: "rocks", label: "Rocks", icon: "🪨" },
+    { id: "traffic", label: "Traffic Board", icon: "🚦" },
     ...(isAdmin ? [{ id: "budget", label: "Budget", icon: "📒" }] : []),
     { id: "docs", label: "Documents", icon: "📁" },
     { id: "scoreboard", label: "Scoreboard", icon: "🏆" },
@@ -1089,7 +1091,7 @@ export default function App() {
       </header>
 
       {/* PAGE CONTENT */}
-      <main className="main-content" style={{ flex: 1, padding: "28px 32px", maxWidth: 1200, width: "100%", margin: "0 auto" }}>
+      <main className="main-content" style={{ flex: 1, padding: "28px 32px", maxWidth: page === "traffic" ? 1440 : 1200, width: "100%", margin: "0 auto" }}>
         {page === "dashboard" && <DashboardPage currentUser={currentUser} users={users} leaveRequests={leaveRequests} checklists={checklists} sales={salesLive} setSales={setSales} isAdmin={isAdmin} setPage={setPage} onLeaveAction={handleLeaveAction} />}
         {page === "leave" && <LeavePage currentUser={currentUser} users={users} setUsers={setUsers} leaveRequests={leaveRequests} setLeaveRequests={setLeaveRequests} isAdmin={isAdmin} onLeaveAction={handleLeaveAction} />}
 
@@ -1098,6 +1100,7 @@ export default function App() {
         {page === "docs" && <DocsPage docModal={docModal} setDocModal={setDocModal} />}
         {page === "scoreboard" && <ScoreboardPage currentUser={currentUser} users={users} isAdmin={isAdmin} onSalesEntriesChanged={refreshSalesEntries} />}
         {page === "rocks" && <RocksPage currentUser={currentUser} users={users} isAdmin={isAdmin} />}
+        {page === "traffic" && <TrafficBoardPage currentUser={currentUser} users={users} canWrite={isAdmin} />}
         {page === "admin" && isSuperAdmin && <AdminPage users={users} setUsers={setUsers} leaveRequests={leaveRequests} setLeaveRequests={setLeaveRequests} checklists={checklists} />}
       </main>
 
@@ -1728,6 +1731,8 @@ function DashboardPage({ currentUser, users, leaveRequests, checklists, sales, s
           {now.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
         </div>
       </div>
+
+      <LiveCashIndicator onOpen={() => setPage("traffic")} />
 
       {/* ══════════════════════════════════════════════════
           HERO: SALES SECTION
