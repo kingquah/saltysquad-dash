@@ -386,12 +386,15 @@ const CORE_DOCS = [
 
 // ── DB ROW MAPPERS ────────────────────────────────────────────────────────────
 
+// Staff directory columns. Password lives in user_credentials and is checked
+// only by verify_user_login — never selected into the client.
+const USER_PUBLIC_COLUMNS = "id, name, email, role, job_title, avatar, annual_left";
+
 function mapUser(row) {
   return {
     id: row.id,
     name: row.name,
     email: row.email,
-    password: row.password,
     role: row.role,
     title: row.job_title,
     avatar: row.avatar,
@@ -934,14 +937,20 @@ function ScoreboardPage({ currentUser, users, isAdmin, onSalesEntriesChanged }) 
 // ── MAIN APP ──────────────────────────────────────────────────────────────────
 
 // "Remember Me": persist the logged-in user across browser sessions.
-// We omit `password` — auto-login skips the password check, so the
-// credential never needs to live in localStorage.
+// Login is verified server-side; the stored session never includes a password.
 const USER_STORAGE_KEY = "saltysquad_user";
 
 function loadStoredUser() {
   try {
     const saved = localStorage.getItem(USER_STORAGE_KEY);
-    return saved ? JSON.parse(saved) : null;
+    if (!saved) return null;
+    const parsed = JSON.parse(saved);
+    if (!parsed || typeof parsed !== "object") return null;
+    if (!("password" in parsed)) return parsed;
+    const safe = { ...parsed };
+    delete safe.password;
+    localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(safe));
+    return safe;
   } catch {
     return null;
   }
@@ -979,7 +988,7 @@ export default function App() {
     let cancelled = false;
     async function loadData() {
       const [usersRes, leaveRes, salesRes, salesEntriesRes, checklistRes] = await Promise.all([
-        supabase.from("users").select("*"),
+        supabase.from("users").select(USER_PUBLIC_COLUMNS),
         supabase.from("leave_requests").select("*"),
         supabase.from("sales_targets").select("*"),
         supabase.from("sales_entries").select("amount, entry_date").eq("category", "sales_closed"),
@@ -1013,7 +1022,7 @@ export default function App() {
 
   if (loading) return <LoadingScreen />;
 
-  if (!currentUser) return <Login users={users} onLogin={u => { rememberUser(u); setCurrentUser(u); setPage("dashboard"); }} />;
+  if (!currentUser) return <Login onLogin={u => { rememberUser(u); setCurrentUser(u); setPage("dashboard"); }} />;
 
   const isAdmin = currentUser.role === "admin" || currentUser.role === "supervisor";
   const isSuperAdmin = currentUser.role === "admin"; // founder only
@@ -1119,22 +1128,38 @@ export default function App() {
 
 // ── LOGIN ─────────────────────────────────────────────────────────────────────
 
-function Login({ users, onLogin }) {
+function Login({ onLogin }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
 
-  function handleLogin(e) {
+  async function handleLogin(e) {
     if (e) e.preventDefault();
+    if (submitting) return;
     const trimmedEmail = email.trim().toLowerCase();
-    const u = users.find(u => {
-      if (u.email.toLowerCase() !== trimmedEmail) return false;
-      // Admin must use their own password; all other roles also accept shared "admin" password
-      if (u.role === "admin") return u.password === password;
-      return u.password === password || password === "admin";
+    if (!trimmedEmail || !password) {
+      setError("Invalid email or password. Try again.");
+      return;
+    }
+    setSubmitting(true);
+    setError("");
+    const { data, error: rpcError } = await supabase.rpc("verify_user_login", {
+      p_email: trimmedEmail,
+      p_password: password,
     });
-    if (u) { setError(""); onLogin(u); }
-    else setError("Invalid email or password. Try again.");
+    setSubmitting(false);
+    if (rpcError) {
+      console.error("[login] verify_user_login error:", rpcError);
+      setError("Could not sign in. Try again.");
+      return;
+    }
+    const row = Array.isArray(data) ? data[0] : data;
+    if (!row) {
+      setError("Invalid email or password. Try again.");
+      return;
+    }
+    onLogin(mapUser(row));
   }
 
   const inputStyle = {
@@ -1183,9 +1208,10 @@ function Login({ users, onLogin }) {
           {error && <div style={{ color: "#e74c3c", fontSize: 13, marginBottom: 8 }}>{error}</div>}
           <button
             type="submit"
-            style={{ width: "100%", background: "#c4704a", color: "#fff", border: "none", borderRadius: 10, padding: "12px", fontSize: 15, fontWeight: 700, cursor: "pointer", marginTop: 16, transition: "background 0.15s", touchAction: "manipulation", WebkitAppearance: "none", appearance: "none", minHeight: 48 }}
+            disabled={submitting}
+            style={{ width: "100%", background: "#c4704a", color: "#fff", border: "none", borderRadius: 10, padding: "12px", fontSize: 15, fontWeight: 700, cursor: submitting ? "not-allowed" : "pointer", marginTop: 16, transition: "background 0.15s", touchAction: "manipulation", WebkitAppearance: "none", appearance: "none", minHeight: 48, opacity: submitting ? 0.7 : 1 }}
           >
-            Sign In →
+            {submitting ? "Signing in…" : "Sign In →"}
           </button>
         </form>
         <div style={{ marginTop: 20, background: "#faf7f3", borderRadius: 10, padding: "12px 14px", fontSize: 12, color: "#9a8a7a" }}>
@@ -3592,44 +3618,59 @@ function AdminPage({ users, setUsers, leaveRequests, setLeaveRequests, checklist
   }
 
   function openEditUser(u) {
-    setUserForm({ name: u.name, email: u.email, password: u.password || "", role: u.role, title: u.title || "" });
+    setUserForm({ name: u.name, email: u.email, password: "", role: u.role, title: u.title || "" });
     setUserMsg("");
     setUserModal(u.id);
   }
 
   async function handleSaveUser() {
-    if (!userForm.name.trim() || !userForm.email.trim() || !userForm.password.trim() || !userForm.title.trim()) {
+    const name = userForm.name.trim();
+    const email = userForm.email.trim().toLowerCase();
+    const title = userForm.title.trim();
+    const nextPassword = userForm.password;
+    const changingPassword = nextPassword.trim().length > 0;
+    if (!name || !email || !title || (userModal === "add" && !changingPassword)) {
       setUserMsg("Please fill in all fields."); return;
     }
-    const avatar = genAvatar(userForm.name);
+    const avatar = genAvatar(name);
+    const profile = { name, email, role: userForm.role, job_title: title, avatar };
 
     if (userModal === "add") {
       const { data, error } = await supabase.from("users").insert({
-        name: userForm.name.trim(),
-        email: userForm.email.trim().toLowerCase(),
-        password: userForm.password,
-        role: userForm.role,
-        job_title: userForm.title.trim(),
-        avatar,
+        ...profile,
         annual_left: 12,
-      }).select().single();
-      if (error) { setUserMsg("❌ Failed: " + (error.message || "unknown error")); return; }
+      }).select(USER_PUBLIC_COLUMNS).single();
+      if (error || !data) { setUserMsg("❌ Failed: " + (error?.message || "unknown error")); return; }
+      const { error: pwError } = await supabase.rpc("set_user_password", {
+        p_user_id: data.id,
+        p_password: nextPassword,
+      });
+      if (pwError) {
+        await supabase.from("users").delete().eq("id", data.id);
+        setUserMsg("❌ Failed to set password: " + (pwError.message || "unknown error"));
+        return;
+      }
       setUsers(prev => [...prev, mapUser(data)]);
       setUserMsg("✅ User added!");
       setTimeout(() => setUserModal(null), 800);
     } else {
-      const { error } = await supabase.from("users").update({
-        name: userForm.name.trim(),
-        email: userForm.email.trim().toLowerCase(),
-        password: userForm.password,
-        role: userForm.role,
-        job_title: userForm.title.trim(),
-        avatar,
-      }).eq("id", userModal);
+      const { error } = await supabase.from("users").update(profile).eq("id", userModal);
       if (error) { setUserMsg("❌ Failed: " + (error.message || "unknown error")); return; }
+      if (changingPassword) {
+        const { error: pwError } = await supabase.rpc("set_user_password", {
+          p_user_id: userModal,
+          p_password: nextPassword,
+        });
+        if (pwError) {
+          setUsers(prev => prev.map(u => u.id !== userModal ? u : {
+            ...u, name, email, role: userForm.role, title, avatar,
+          }));
+          setUserMsg("❌ Profile saved, but password was not updated: " + (pwError.message || "unknown error"));
+          return;
+        }
+      }
       setUsers(prev => prev.map(u => u.id !== userModal ? u : {
-        ...u, name: userForm.name.trim(), email: userForm.email.trim().toLowerCase(),
-        password: userForm.password, role: userForm.role, title: userForm.title.trim(), avatar,
+        ...u, name, email, role: userForm.role, title, avatar,
       }));
       setUserMsg("✅ Updated!");
       setTimeout(() => setUserModal(null), 800);
@@ -3733,7 +3774,14 @@ function AdminPage({ users, setUsers, leaveRequests, setLeaveRequests, checklist
               </div>
               <div>
                 <label style={labelStyle}>Password</label>
-                <input value={userForm.password} onChange={e => setUserForm({...userForm, password: e.target.value})} placeholder="Set a password" style={inputStyle} />
+                <input
+                  type="password"
+                  value={userForm.password}
+                  onChange={e => setUserForm({...userForm, password: e.target.value})}
+                  placeholder={userModal === "add" ? "Set a password" : "Leave blank to keep current password"}
+                  autoComplete="new-password"
+                  style={inputStyle}
+                />
               </div>
               <div>
                 <label style={labelStyle}>Role</label>
