@@ -1100,7 +1100,7 @@ export default function App() {
       </header>
 
       {/* PAGE CONTENT */}
-      <main className="main-content" style={{ flex: 1, padding: "28px 32px", maxWidth: page === "traffic" ? 1440 : 1200, width: "100%", margin: "0 auto" }}>
+      <main className="main-content" style={{ flex: 1, padding: "28px 32px", maxWidth: page === "traffic" ? 1440 : 1200, width: "100%", margin: "0 auto", ...(page === "traffic" ? { boxSizing: "border-box", minWidth: 0 } : {}) }}>
         {page === "dashboard" && <DashboardPage currentUser={currentUser} users={users} leaveRequests={leaveRequests} checklists={checklists} sales={salesLive} setSales={setSales} isAdmin={isAdmin} setPage={setPage} onLeaveAction={handleLeaveAction} />}
         {page === "leave" && <LeavePage currentUser={currentUser} users={users} setUsers={setUsers} leaveRequests={leaveRequests} setLeaveRequests={setLeaveRequests} isAdmin={isAdmin} onLeaveAction={handleLeaveAction} />}
 
