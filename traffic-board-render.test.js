@@ -60,6 +60,9 @@ test("board markup shows partial, overdue, collected, and cost pending — never
   assert.match(html, /Saltyskins MY/);
   assert.match(html, /Saltycustoms SG/);
   assert.match(html, /data-margin="pending"/);
+  assert.match(html, /table-layout:fixed/);
+  assert.equal(html.includes("min-width:860"), false);
+  assert.match(html, /overflow-wrap:anywhere/);
 
   const staff = renderToStaticMarkup(React.createElement(mod.TrafficBoardView, {
     canWrite: false,

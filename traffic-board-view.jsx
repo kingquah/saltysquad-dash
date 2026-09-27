@@ -36,6 +36,21 @@ const MARGIN_STYLE = {
   final: { bg: "#d4edda", color: "#1a6630" },
 };
 
+// Fixed shares so both entity tables line up and the row stays inside the viewport.
+// Project / ACA / AC wrap; money stays on one line; margin and actions may wrap.
+const BOARD_COLUMNS = [
+  { key: "project", label: "Project", width: "14%" },
+  { key: "aca", label: "ACA", width: "8%" },
+  { key: "ac", label: "AC", width: "9%" },
+  { key: "close", label: "Close", width: "9%" },
+  { key: "amount", label: "Amount", width: "10%", align: "right" },
+  { key: "collected", label: "Collected", width: "10%", align: "right" },
+  { key: "owed", label: "Owed", width: "10%", align: "right" },
+  { key: "status", label: "Status", width: "8%" },
+  { key: "margin", label: "Margin", width: "8%" },
+  { key: "actions", label: "", width: "14%" },
+];
+
 const inputStyle = {
   width: "100%",
   padding: "9px 12px",
@@ -56,9 +71,22 @@ const labelStyle = {
   marginBottom: 5,
 };
 
-function Badge({ text, bg, color }) {
+function Badge({ text, bg, color, wrap = false }) {
   return (
-    <span style={{ background: bg, color, padding: "3px 10px", borderRadius: 99, fontSize: 11, fontWeight: 700, whiteSpace: "nowrap" }}>
+    <span style={{
+      background: bg,
+      color,
+      padding: "3px 8px",
+      borderRadius: 99,
+      fontSize: 11,
+      fontWeight: 700,
+      whiteSpace: wrap ? "normal" : "nowrap",
+      display: wrap ? "inline-block" : undefined,
+      maxWidth: wrap ? "100%" : undefined,
+      lineHeight: wrap ? 1.35 : undefined,
+      boxSizing: "border-box",
+      verticalAlign: "middle",
+    }}>
       {text}
     </span>
   );
@@ -491,7 +519,7 @@ export function TrafficBoardView({
   }
 
   return (
-    <div>
+    <div style={{ minWidth: 0, maxWidth: "100%" }}>
       <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", alignItems: "flex-start", marginBottom: 8 }}>
         <div>
           <h2 style={{ margin: 0, fontSize: 22, fontWeight: 800, color: "#3a2a1a" }}>🚦 Traffic Board</h2>
@@ -542,12 +570,23 @@ export function TrafficBoardView({
           {group.deals.length === 0 ? (
             <div style={{ background: "#fff", borderRadius: 12, padding: 16, color: "#9a8a7a", fontSize: 13, border: "1.5px solid #f0ebe4" }}>No deals in this section.</div>
           ) : (
-            <div className="table-scroll" style={{ background: "#fff", borderRadius: 14, border: "1.5px solid #f0ebe4", overflowX: "auto" }}>
-              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, minWidth: 860 }}>
+            <div className="table-scroll" style={{ background: "#fff", borderRadius: 14, border: "1.5px solid #f0ebe4", overflowX: "auto", maxWidth: "100%", WebkitOverflowScrolling: "touch" }}>
+              <table className="traffic-board-table" style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, tableLayout: "fixed" }}>
+                <colgroup>
+                  {BOARD_COLUMNS.map(col => <col key={col.key} style={{ width: col.width }} />)}
+                </colgroup>
                 <thead>
                   <tr style={{ background: "#faf7f3", textAlign: "left" }}>
-                    {["Project", "ACA", "AC", "Close", "Amount", "Collected", "Owed", "Status", "Margin", ""].map(h => (
-                      <th key={h || "act"} style={{ padding: "10px 12px", color: "#7a6a5a", fontSize: 11, fontWeight: 700 }}>{h}</th>
+                    {BOARD_COLUMNS.map(col => (
+                      <th key={col.key} style={{
+                        padding: "8px 8px",
+                        color: "#7a6a5a",
+                        fontSize: 11,
+                        fontWeight: 700,
+                        textAlign: col.align || "left",
+                        overflowWrap: "anywhere",
+                        ...(col.key === "project" ? { position: "sticky", left: 0, zIndex: 2, background: "#faf7f3" } : null),
+                      }}>{col.label}</th>
                     ))}
                   </tr>
                 </thead>
@@ -556,28 +595,33 @@ export function TrafficBoardView({
                     const st = STATUS_STYLE[deal.status] || STATUS_STYLE.Open;
                     const mg = MARGIN_STYLE[deal.margin.state] || MARGIN_STYLE.pending;
                     const open = expanded === deal.id;
-                    const td = { padding: "10px 12px", color: "#5a4a3a", verticalAlign: "top" };
+                    const td = { padding: "8px 8px", color: "#5a4a3a", verticalAlign: "top" };
+                    const wrapTd = { ...td, overflowWrap: "anywhere" };
+                    const moneyTd = { ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" };
+                    const stickyProject = { position: "sticky", left: 0, zIndex: 1, background: "#fff", boxShadow: "1px 0 0 #f0ebe4" };
                     return (
                       <Fragment key={deal.id}>
                         <tr style={{ borderTop: "1px solid #f5f0ec" }}>
-                          <td style={{ ...td, fontWeight: 700, color: "#3a2a1a" }}>{deal.project_name}</td>
-                          <td style={td}>{deal.aca_id || "—"}</td>
-                          <td style={td}>{deal.ac_in_charge || "—"}</td>
+                          <td style={{ ...wrapTd, ...stickyProject, fontWeight: 700, color: "#3a2a1a" }}>{deal.project_name}</td>
+                          <td style={wrapTd}>{deal.aca_id || "—"}</td>
+                          <td style={wrapTd}>{deal.ac_in_charge || "—"}</td>
                           <td style={{ ...td, whiteSpace: "nowrap" }}>{deal.deal_close_date || "—"}</td>
-                          <td style={{ ...td, fontWeight: 700, color: "#3a2a1a" }}>{formatRM(deal.amount)}</td>
-                          <td style={td}>
+                          <td style={{ ...moneyTd, fontWeight: 700, color: "#3a2a1a" }}>{formatRM(deal.amount)}</td>
+                          <td style={moneyTd}>
                             {formatRM(deal.collected)}
-                            {deal.overpaid > 0 && <div style={{ fontSize: 11, color: "#1a4d80" }}>Over by {formatRM(deal.overpaid)}</div>}
+                            {deal.overpaid > 0 && <div style={{ fontSize: 11, color: "#1a4d80", whiteSpace: "normal" }}>Over by {formatRM(deal.overpaid)}</div>}
                           </td>
-                          <td style={td}>{formatRM(deal.remaining)}</td>
+                          <td style={moneyTd}>{formatRM(deal.remaining)}</td>
                           <td style={td}><Badge text={deal.status} bg={st.bg} color={st.color} /></td>
                           <td style={td} data-margin={deal.margin.state} data-status={deal.status}>
-                            <Badge text={marginText(deal.margin)} bg={mg.bg} color={mg.color} />
+                            <Badge text={marginText(deal.margin)} bg={mg.bg} color={mg.color} wrap />
                           </td>
-                          <td style={{ ...td, whiteSpace: "nowrap" }}>
-                            <button type="button" onClick={() => setExpanded(open ? null : deal.id)} style={textBtn("#5a4a3a")}>{open ? "Hide" : "Open"}</button>
-                            {canWrite && <button type="button" onClick={() => setDealForm({ mode: "edit", deal, initial: dealToForm(deal) })} style={textBtn("#c4704a")}>Edit</button>}
-                            {canWrite && <button type="button" onClick={() => { if (window.confirm(`Delete “${deal.project_name}”? Collections and costs on this job go with it.`)) onDeleteDeal(deal); }} style={textBtn("#e74c3c")}>Delete</button>}
+                          <td style={td}>
+                            <div style={{ display: "flex", flexWrap: "wrap", gap: "2px 8px" }}>
+                              <button type="button" onClick={() => setExpanded(open ? null : deal.id)} style={{ ...textBtn("#5a4a3a"), marginLeft: 0 }}>{open ? "Hide" : "Open"}</button>
+                              {canWrite && <button type="button" onClick={() => setDealForm({ mode: "edit", deal, initial: dealToForm(deal) })} style={{ ...textBtn("#c4704a"), marginLeft: 0 }}>Edit</button>}
+                              {canWrite && <button type="button" onClick={() => { if (window.confirm(`Delete “${deal.project_name}”? Collections and costs on this job go with it.`)) onDeleteDeal(deal); }} style={{ ...textBtn("#e74c3c"), marginLeft: 0 }}>Delete</button>}
+                            </div>
                           </td>
                         </tr>
                         {open && (
