@@ -9,6 +9,7 @@ import {
   filterDeals,
   formatRM,
   friendlyWriteError,
+  gpText,
   marginText,
   marginView,
   normalizeDealInput,
@@ -85,10 +86,38 @@ test("summary skips pending jobs in GP and counts overdue remainder", () => {
   assert.equal(summary.pendingCount, 1);
   assert.equal(summary.provisionalGp, 900);
   assert.equal(summary.finalGp, 0);
+  assert.equal(summary.finalSales, 0);
+  assert.equal(summary.finalPct, null);
   assert.equal(summary.finalCount, 0);
+  assert.equal(gpText(summary.finalCount, summary.finalGp, summary.finalPct), "—");
+  assert.equal(gpText(summary.provisionalCount, summary.provisionalGp), "RM 900.00");
   assert.equal(summary.overdueCount, 1);
   assert.equal(summary.overdueOwed, 800);
   assert.equal(formatRM(summary.sales), "RM 2,000.00");
+
+  const lockedOnly = summarize(deals.filter(d => d.margin.state === "final"));
+  assert.equal(lockedOnly.finalSales, 400);
+  assert.equal(lockedOnly.finalGp, 300);
+  assert.equal(lockedOnly.finalPct, deals[2].margin.pct);
+  assert.equal(gpText(lockedOnly.finalCount, lockedOnly.finalGp, lockedOnly.finalPct), "RM 300.00 (75.0%)");
+});
+
+test("final GP card percent is locked gross profit over locked sales only", () => {
+  const deals = [
+    deriveDeal({ id: "pending", amount_myr: 1000, costs_locked: true, deal_close_date: "2026-09-01", entity: "saltyskins_my", project_name: "No cost" }, [], [], TODAY),
+    deriveDeal({ id: "open-cost", amount_myr: 1000, costs_locked: false, deal_close_date: "2026-09-02", entity: "saltyskins_my", project_name: "Unlocked" }, [], [{ deal_id: "open-cost", amount: 400 }], TODAY),
+    deriveDeal({ id: "lock-a", amount_myr: 1000, costs_locked: true, deal_close_date: "2026-09-03", entity: "saltyskins_my", project_name: "Locked A" }, [], [{ deal_id: "lock-a", amount: 400 }], TODAY),
+    deriveDeal({ id: "lock-b", amount_myr: 500, costs_locked: true, deal_close_date: "2026-09-04", entity: "saltycustoms_sg", project_name: "Locked B" }, [], [{ deal_id: "lock-b", amount: 100 }], TODAY),
+  ];
+  const summary = summarize(deals);
+  assert.equal(summary.pendingCount, 1);
+  assert.equal(summary.provisionalGp, 600);
+  assert.equal(summary.finalCount, 2);
+  assert.equal(summary.finalSales, 1500);
+  assert.equal(summary.finalGp, 1000);
+  assert.equal(summary.finalPct, 66.7);
+  assert.equal(gpText(summary.provisionalCount, summary.provisionalGp), "RM 600.00");
+  assert.equal(gpText(summary.finalCount, summary.finalGp, summary.finalPct), "RM 1,000.00 (66.7%)");
 });
 
 test("audit diff is before to after, and sentences name the person", () => {

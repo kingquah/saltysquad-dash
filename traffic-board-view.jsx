@@ -515,7 +515,7 @@ export function TrafficBoardView({
     { label: "Still owed", value: summary.count ? formatRM(summary.owed) : "—", hint: "Deal amount minus collections" },
     { label: "COGS entered", value: summary.count ? formatRM(summary.cogs) : "—", hint: summary.pendingCount ? `${summary.pendingCount} still cost pending` : "From cost lines only" },
     { label: "Provisional GP", value: gpText(summary.provisionalCount, summary.provisionalGp), hint: summary.provisionalCount ? `${summary.provisionalCount} unlocked` : "No provisional jobs" },
-    { label: "Final GP", value: gpText(summary.finalCount, summary.finalGp), hint: summary.finalCount ? `${summary.finalCount} locked` : "No locked jobs" },
+    { label: "Final GP", value: gpText(summary.finalCount, summary.finalGp, summary.finalPct), hint: summary.finalCount ? `${summary.finalCount} locked` : "No locked jobs" },
     { label: "Overdue", value: summary.overdueCount ? String(summary.overdueCount) : "0", hint: summary.overdueCount ? `${formatRM(summary.overdueOwed)} still owed` : "None past the expected date" },
   ];
 
