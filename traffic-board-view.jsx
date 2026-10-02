@@ -411,7 +411,12 @@ function DealDetails({ deal, canWrite, saving, today, draft, setDraft, salesOpti
 
       <div style={{ background: "#fff", borderRadius: 12, padding: 12, border: "1px solid #f0ebe4" }}>
         <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-          <strong style={{ color: "#3a2a1a", fontSize: 14 }}>Costs</strong>
+          <span style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <strong style={{ color: "#3a2a1a", fontSize: 14 }}>Costs</strong>
+            {deal.margin.state === "final" && (
+              <Badge text={marginText(deal.margin)} bg={MARGIN_STYLE.final.bg} color={MARGIN_STYLE.final.color} wrap />
+            )}
+          </span>
           {canWrite && (
             <span style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
               {!locked && <button type="button" onClick={() => setDraft({ dealId: deal.id, kind: "cost", editingId: null, collected_at: today, amount: "", note: "", cost_date: today, cost_type: "fabric_print" })} style={smallBtn("#fff", "#c4704a", "#e8ddd5")}>Add cost</button>}
@@ -474,6 +479,7 @@ export function TrafficBoardView({
   today = todayISO(),
   initialMonth,
   opsMd = "",
+  initialExpanded = null,
   onCreateDeal,
   onUpdateDeal,
   onDeleteDeal,
@@ -486,7 +492,7 @@ export function TrafficBoardView({
   const [month, setMonth] = useState(initialMonth || monthKeyFromDate(new Date(`${today}T12:00:00`)));
   const [entity, setEntity] = useState("all");
   const [search, setSearch] = useState("");
-  const [expanded, setExpanded] = useState(null);
+  const [expanded, setExpanded] = useState(initialExpanded);
   const [dealForm, setDealForm] = useState(null);
   const [draft, setDraft] = useState(null);
   const [showAudit, setShowAudit] = useState(false);

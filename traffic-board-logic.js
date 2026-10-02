@@ -179,6 +179,10 @@ export function marginView(amount, costs, costsLocked) {
 
 export function marginText(margin) {
   if (!margin || margin.state === "pending") return "Cost pending";
+  if (margin.state === "final") {
+    const pct = margin.pct == null ? "" : ` (${margin.pct.toFixed(1)}%)`;
+    return `Final GP ${formatRM(margin.gp)}${pct}`;
+  }
   const pct = margin.pct == null ? "" : ` · ${margin.pct.toFixed(1)}%`;
   return `${margin.label} · ${formatRM(margin.gp)}${pct}`;
 }

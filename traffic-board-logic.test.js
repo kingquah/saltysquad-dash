@@ -50,12 +50,15 @@ test("a real zero-cost line can show 100% because a cost was entered", () => {
   const view = marginView(1000, [{ amount: 0 }], false);
   assert.equal(view.state, "provisional");
   assert.equal(view.pct, 100);
-  assert.match(marginText(view), /Provisional/);
+  assert.equal(marginText(view), "Provisional · RM 1,000.00 · 100.0%");
   const final = marginView(1000, [{ amount: 250 }], true);
   assert.equal(final.state, "final");
   assert.equal(final.gp, 750);
   assert.equal(final.pct, 75);
-  assert.match(marginText(final), /Final · RM 750\.00 · 75\.0%/);
+  assert.equal(marginText(final), "Final GP RM 750.00 (75.0%)");
+  const zeroAmount = marginView(0, [{ amount: 0 }], true);
+  assert.equal(zeroAmount.pct, null);
+  assert.equal(marginText(zeroAmount), "Final GP RM 0.00");
 });
 
 test("summary skips pending jobs in GP and counts overdue remainder", () => {
