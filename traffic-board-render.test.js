@@ -88,6 +88,8 @@ test("phone css keeps names, money, and tab labels intact", () => {
   assert.match(phone, /\.tb-card-value\s*\{[^}]*white-space:\s*nowrap\s*!important/s);
   assert.match(phone, /\.tb-summary-card-wide\s*\{[^}]*grid-column:\s*1\s*\/\s*-1/s);
   assert.match(phone, /\.tb-col-project[\s\S]*white-space:\s*nowrap\s*!important/);
+  assert.match(phone, /\.tb-col-margin \.tb-badge\s*\{[^}]*width:\s*max-content\s*!important[^}]*max-width:\s*none\s*!important/s);
+  assert.match(phone, /\.tb-col-close[\s\S]*min-width:\s*max-content\s*!important/);
   assert.match(phone, /\.traffic-board-table[\s\S]*table-layout:\s*auto\s*!important/);
   assert.match(phone, /\.bottom-tab-bar\s*\{[^}]*flex-wrap:\s*wrap/s);
   assert.match(phone, /\.bottom-tab-label\s*\{[^}]*white-space:\s*nowrap/s);

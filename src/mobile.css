@@ -249,6 +249,21 @@ input, textarea, select {
     white-space: nowrap !important;
     overflow-wrap: normal !important;
     word-break: normal !important;
+    overflow: visible !important;
+  }
+  /* Size these columns to the full text. A max-width on the badge was letting
+     the scrollport cut "Final GP RM …" and "2026-01-31" mid-glyph. */
+  .traffic-board-table .tb-col-close,
+  .traffic-board-table .tb-col-margin {
+    width: max-content !important;
+    min-width: max-content !important;
+    max-width: none !important;
+  }
+  .traffic-board-table .tb-col-margin .tb-badge {
+    display: inline-block !important;
+    width: max-content !important;
+    min-width: max-content !important;
+    max-width: none !important;
   }
   .traffic-board-table .tb-col-project,
   .traffic-board-table th.tb-col-project {
