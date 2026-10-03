@@ -39,7 +39,7 @@ input, textarea, select {
   .main-content {
     padding: 16px 14px !important;
     /* Clears a wrapped tab bar (up to three rows) plus the home indicator. */
-    padding-bottom: calc(176px + env(safe-area-inset-bottom)) !important;
+    padding-bottom: calc(196px + env(safe-area-inset-bottom)) !important;
     min-width: 0 !important;
     max-width: 100% !important;
     box-sizing: border-box;
@@ -211,6 +211,9 @@ input, textarea, select {
   }
   .tb-summary-card-wide {
     grid-column: 1 / -1;
+    /* Sit under the other totals so Provisional and Overdue stay paired,
+       and the amount plus percent have the full row. */
+    grid-row: 4;
   }
   .tb-card-value {
     white-space: nowrap !important;
