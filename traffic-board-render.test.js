@@ -58,8 +58,8 @@ test("board markup shows partial, overdue, collected, and cost pending — never
   assert.match(html, /Final GP RM 300\.00 \(75\.0%\)/);
   const finalHits = html.match(/Final GP RM 300\.00 \(75\.0%\)/g) || [];
   assert.equal(finalHits.length, 2);
-  assert.match(html, /Provisional GP<\/div><div style="[^"]*">RM 900\.00<\/div>/);
-  assert.match(html, /Final GP<\/div><div style="[^"]*">RM 300\.00 \(75\.0%\)<\/div><div style="[^"]*">1 locked<\/div>/);
+  assert.match(html, /Provisional GP<\/div><div[^>]*>RM 900\.00<\/div>/);
+  assert.match(html, /Final GP<\/div><div[^>]*>RM 300\.00 \(75\.0%\)<\/div><div[^>]*>1 locked<\/div>/);
   assert.equal(html.includes("100.0%"), false);
   assert.match(html, /Add closed deal/);
   assert.match(html, /Saltyskins MY/);
@@ -80,4 +80,18 @@ test("board markup shows partial, overdue, collected, and cost pending — never
   assert.equal(staff.includes("Add closed deal"), false);
   assert.match(staff, /View only/);
   fs.rmSync(outfile, { force: true });
+});
+
+test("phone css keeps names, money, and tab labels intact", () => {
+  const css = fs.readFileSync(path.join(process.cwd(), "src/mobile.css"), "utf8");
+  const phone = css.slice(css.indexOf("@media (max-width: 768px)"));
+  assert.match(phone, /\.tb-card-value\s*\{[^}]*white-space:\s*nowrap\s*!important/s);
+  assert.match(phone, /\.tb-summary-card-wide\s*\{[^}]*grid-column:\s*1\s*\/\s*-1/s);
+  assert.match(phone, /\.tb-col-project[\s\S]*white-space:\s*nowrap\s*!important/);
+  assert.match(phone, /\.tb-col-margin \.tb-badge\s*\{[^}]*width:\s*max-content\s*!important[^}]*max-width:\s*none\s*!important/s);
+  assert.match(phone, /\.tb-col-close[\s\S]*min-width:\s*max-content\s*!important/);
+  assert.match(phone, /\.traffic-board-table[\s\S]*table-layout:\s*auto\s*!important/);
+  assert.match(phone, /\.bottom-tab-bar\s*\{[^}]*flex-wrap:\s*wrap/s);
+  assert.match(phone, /\.bottom-tab-label\s*\{[^}]*white-space:\s*nowrap/s);
+  assert.equal(phone.includes("overflow-wrap:anywhere"), false);
 });
