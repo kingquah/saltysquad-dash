@@ -73,7 +73,7 @@ const labelStyle = {
 
 function Badge({ text, bg, color, wrap = false }) {
   return (
-    <span style={{
+    <span className="tb-badge" style={{
       background: bg,
       color,
       padding: "3px 8px",
@@ -541,7 +541,7 @@ export function TrafficBoardView({
       </div>
       {!canWrite && <div style={{ fontSize: 12, color: "#8a5a12", background: "#fff4e0", display: "inline-block", borderRadius: 99, padding: "4px 10px", marginBottom: 12 }}>View only. Supervisors record collections and costs.</div>}
 
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", margin: "12px 0" }}>
+      <div className="tb-filters" style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", margin: "12px 0" }}>
         <span style={{ fontSize: 13, fontWeight: 700, color: "#5a4a3a" }}>Close month</span>
         <input type="month" value={month === "all" ? monthKeyFromDate(new Date(`${today}T12:00:00`)) : month} disabled={month === "all"} onChange={e => setMonth(e.target.value)} style={{ ...inputStyle, width: "auto" }} />
         <button type="button" onClick={() => setMonth(month === "all" ? monthKeyFromDate(new Date(`${today}T12:00:00`)) : "all")} style={smallBtn(month === "all" ? "#3a2a1a" : "#fff", month === "all" ? "#fff" : "#5a4a3a", "#e8ddd5")}>
@@ -552,15 +552,15 @@ export function TrafficBoardView({
             {en.label}
           </button>
         ))}
-        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search project, ACA, AC" style={{ ...inputStyle, width: 220 }} />
+        <input className="tb-search" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search project, ACA, AC" style={{ ...inputStyle, width: 220 }} />
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 10, marginBottom: 8 }}>
+      <div className="tb-summary-cards" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 10, marginBottom: 8 }}>
         {cards.map(card => (
-          <div key={card.label} style={{ background: "#fff", borderRadius: 14, padding: "12px 14px", border: "1.5px solid #f0ebe4" }}>
+          <div key={card.label} className={`tb-summary-card${card.label === "Final GP" ? " tb-summary-card-wide" : ""}`} style={{ background: "#fff", borderRadius: 14, padding: "12px 14px", border: "1.5px solid #f0ebe4" }}>
             <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.4, textTransform: "uppercase", color: "#9a8a7a" }}>{card.label}</div>
-            <div style={{ fontSize: 16, fontWeight: 800, color: "#3a2a1a", marginTop: 4 }}>{card.value}</div>
-            <div style={{ fontSize: 11, color: "#9a8a7a", marginTop: 2 }}>{card.hint}</div>
+            <div className="tb-card-value" style={{ fontSize: 16, fontWeight: 800, color: "#3a2a1a", marginTop: 4 }}>{card.value}</div>
+            <div className="tb-card-hint" style={{ fontSize: 11, color: "#9a8a7a", marginTop: 2 }}>{card.hint}</div>
           </div>
         ))}
       </div>
@@ -584,7 +584,7 @@ export function TrafficBoardView({
                 <thead>
                   <tr style={{ background: "#faf7f3", textAlign: "left" }}>
                     {BOARD_COLUMNS.map(col => (
-                      <th key={col.key} style={{
+                      <th key={col.key} className={`tb-col tb-col-${col.key}`} style={{
                         padding: "8px 8px",
                         color: "#7a6a5a",
                         fontSize: 11,
@@ -608,21 +608,21 @@ export function TrafficBoardView({
                     return (
                       <Fragment key={deal.id}>
                         <tr style={{ borderTop: "1px solid #f5f0ec" }}>
-                          <td style={{ ...wrapTd, ...stickyProject, fontWeight: 700, color: "#3a2a1a" }}>{deal.project_name}</td>
-                          <td style={wrapTd}>{deal.aca_id || "—"}</td>
-                          <td style={wrapTd}>{deal.ac_in_charge || "—"}</td>
-                          <td style={{ ...td, whiteSpace: "nowrap" }}>{deal.deal_close_date || "—"}</td>
-                          <td style={{ ...moneyTd, fontWeight: 700, color: "#3a2a1a" }}>{formatRM(deal.amount)}</td>
-                          <td style={moneyTd}>
+                          <td className="tb-col tb-col-project" style={{ ...wrapTd, ...stickyProject, fontWeight: 700, color: "#3a2a1a" }}>{deal.project_name}</td>
+                          <td className="tb-col tb-col-aca" style={wrapTd}>{deal.aca_id || "—"}</td>
+                          <td className="tb-col tb-col-ac" style={wrapTd}>{deal.ac_in_charge || "—"}</td>
+                          <td className="tb-col tb-col-close" style={{ ...td, whiteSpace: "nowrap" }}>{deal.deal_close_date || "—"}</td>
+                          <td className="tb-col tb-col-amount" style={{ ...moneyTd, fontWeight: 700, color: "#3a2a1a" }}>{formatRM(deal.amount)}</td>
+                          <td className="tb-col tb-col-collected" style={moneyTd}>
                             {formatRM(deal.collected)}
                             {deal.overpaid > 0 && <div style={{ fontSize: 11, color: "#1a4d80", whiteSpace: "normal" }}>Over by {formatRM(deal.overpaid)}</div>}
                           </td>
-                          <td style={moneyTd}>{formatRM(deal.remaining)}</td>
-                          <td style={td}><Badge text={deal.status} bg={st.bg} color={st.color} /></td>
-                          <td style={td} data-margin={deal.margin.state} data-status={deal.status}>
+                          <td className="tb-col tb-col-owed" style={moneyTd}>{formatRM(deal.remaining)}</td>
+                          <td className="tb-col tb-col-status" style={td}><Badge text={deal.status} bg={st.bg} color={st.color} /></td>
+                          <td className="tb-col tb-col-margin" style={td} data-margin={deal.margin.state} data-status={deal.status}>
                             <Badge text={marginText(deal.margin)} bg={mg.bg} color={mg.color} wrap />
                           </td>
-                          <td style={td}>
+                          <td className="tb-col tb-col-actions" style={td}>
                             <div style={{ display: "flex", flexWrap: "wrap", gap: "2px 8px" }}>
                               <button type="button" onClick={() => setExpanded(open ? null : deal.id)} style={{ ...textBtn("#5a4a3a"), marginLeft: 0 }}>{open ? "Hide" : "Open"}</button>
                               {canWrite && <button type="button" onClick={() => setDealForm({ mode: "edit", deal, initial: dealToForm(deal) })} style={{ ...textBtn("#c4704a"), marginLeft: 0 }}>Edit</button>}
