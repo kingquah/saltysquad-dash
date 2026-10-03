@@ -156,6 +156,13 @@ export function collectionStatus(amount, collected, expectedDate, today) {
   return "Open";
 }
 
+// Gross profit ÷ sales, one decimal. Shared by a locked deal and the Final GP total.
+function marginPercent(amount, gp) {
+  const amt = money(amount);
+  if (!(amt > 0) || gp == null) return null;
+  return Math.round((money(gp) / amt) * 1000) / 10;
+}
+
 // No cost rows → always "Cost pending", even if costs_locked was set by mistake.
 // A recorded 0-cost row is a real entry, so margin can be calculated.
 export function marginView(amount, costs, costsLocked) {
@@ -166,7 +173,7 @@ export function marginView(amount, costs, costsLocked) {
   }
   const cogs = sumAmounts(list);
   const gp = money(amt - cogs);
-  const pct = amt > 0 ? Math.round((gp / amt) * 1000) / 10 : null;
+  const pct = marginPercent(amt, gp);
   const state = costsLocked ? "final" : "provisional";
   return {
     state,
@@ -179,6 +186,10 @@ export function marginView(amount, costs, costsLocked) {
 
 export function marginText(margin) {
   if (!margin || margin.state === "pending") return "Cost pending";
+  if (margin.state === "final") {
+    const pct = margin.pct == null ? "" : ` (${margin.pct.toFixed(1)}%)`;
+    return `Final GP ${formatRM(margin.gp)}${pct}`;
+  }
   const pct = margin.pct == null ? "" : ` · ${margin.pct.toFixed(1)}%`;
   return `${margin.label} · ${formatRM(margin.gp)}${pct}`;
 }
@@ -232,6 +243,8 @@ export function summarize(deals) {
     cogs: 0,
     provisionalGp: 0,
     finalGp: 0,
+    finalSales: 0,
+    finalPct: null,
     provisionalCount: 0,
     finalCount: 0,
     pendingCount: 0,
@@ -251,6 +264,7 @@ export function summarize(deals) {
         s.provisionalCount += 1;
       } else {
         s.finalGp = money(s.finalGp + d.margin.gp);
+        s.finalSales = money(s.finalSales + d.amount);
         s.finalCount += 1;
       }
     }
@@ -259,12 +273,15 @@ export function summarize(deals) {
       s.overdueOwed = money(s.overdueOwed + d.remaining);
     }
   }
+  s.finalPct = marginPercent(s.finalSales, s.finalCount ? s.finalGp : null);
   return s;
 }
 
-export function gpText(count, amount) {
+export function gpText(count, amount, pct) {
   if (!count) return "—";
-  return formatRM(amount);
+  const rm = formatRM(amount);
+  if (pct == null) return rm;
+  return `${rm} (${Number(pct).toFixed(1)}%)`;
 }
 
 export function groupByEntity(deals, entityFilter = "all") {

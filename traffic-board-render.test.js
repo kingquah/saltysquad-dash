@@ -48,13 +48,18 @@ test("board markup shows partial, overdue, collected, and cost pending — never
     onSaveCost: async () => ({ errors: [] }),
     onDeleteCost: async () => {},
     onSetLocked: async () => ({ errors: [] }),
+    initialExpanded: "done",
   }));
   assert.match(html, /Cost pending/);
   assert.match(html, /Partial/);
   assert.match(html, /Overdue/);
   assert.match(html, /Collected/);
-  assert.match(html, /Provisional/);
-  assert.match(html, /Final · RM 300\.00 · 75\.0%/);
+  assert.match(html, /Provisional · RM 900\.00 · 90\.0%/);
+  assert.match(html, /Final GP RM 300\.00 \(75\.0%\)/);
+  const finalHits = html.match(/Final GP RM 300\.00 \(75\.0%\)/g) || [];
+  assert.equal(finalHits.length, 2);
+  assert.match(html, /Provisional GP<\/div><div style="[^"]*">RM 900\.00<\/div>/);
+  assert.match(html, /Final GP<\/div><div style="[^"]*">RM 300\.00 \(75\.0%\)<\/div><div style="[^"]*">1 locked<\/div>/);
   assert.equal(html.includes("100.0%"), false);
   assert.match(html, /Add closed deal/);
   assert.match(html, /Saltyskins MY/);

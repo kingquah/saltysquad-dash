@@ -342,7 +342,7 @@ export function LiveCashIndicator({ onOpen }) {
           <CashBit label="Still owed" value={formatRM(state.summary.owed)} />
           <CashBit label="Overdue" value={state.summary.overdueCount ? `${state.summary.overdueCount} · ${formatRM(state.summary.overdueOwed)}` : "None"} />
           <CashBit label="Provisional GP" value={gpText(state.summary.provisionalCount, state.summary.provisionalGp)} />
-          <CashBit label="Final GP" value={gpText(state.summary.finalCount, state.summary.finalGp)} />
+          <CashBit label="Final GP" value={gpText(state.summary.finalCount, state.summary.finalGp, state.summary.finalPct)} />
         </div>
       )}
     </div>
