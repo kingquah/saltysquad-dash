@@ -3,6 +3,7 @@ import { supabase } from "./supabase";
 import { BUDGET_STRUCTURE, BUDGET_MONTHS, BUDGET_INPUT_KEYS, BUDGET_LABELS, BUDGET_ADDABLE_SECTIONS, SECTION_TO_SUBTOTAL } from "./budget-data.js";
 import { DEFAULT_ROCKS } from "./rocks-seed.js";
 import { TrafficBoardPage, LiveCashIndicator } from "./traffic-board.jsx";
+import { checklistMonthEditState } from "./checklist-month-edit.js";
 import * as XLSX from "xlsx";
 
 // ── STATIC / CONFIG DATA ──────────────────────────────────────────────────────
@@ -2226,12 +2227,18 @@ function ChecklistPage({ currentUser, users, checklists, setChecklists, isAdmin 
   const [tab, setTab] = useState("fill");
 
   // Only the founder (admin role) may view/edit other people's checklists and
-  // set Director's Scoring. Supervisors & staff see and edit only their own.
+  // set Director's Scoring. Supervisors & staff edit only their own current
+  // month, plus their own previous month through the 7th of the new month.
   const isSuperAdmin = currentUser.role === "admin";
   const viewUserId = Number(isSuperAdmin ? selectedUser : currentUser.id);
   const cl = checklists[viewUserId]?.[selectedMonth] || { checks: {}, remarks: "", directorScore: null };
-  const isCurrentUserMonth = viewUserId === currentUser.id && selectedMonth === monthKey;
-  const canEdit = isSuperAdmin || isCurrentUserMonth;
+  const { canEdit, graceNote } = checklistMonthEditState({
+    isAdmin: isSuperAdmin,
+    isOwn: viewUserId === currentUser.id,
+    selectedMonth,
+    currentMonth: monthKey,
+    today: now,
+  });
 
   // Ref always points to latest checklists — prevents stale closure in async functions
   const checklistsRef = useRef(checklists);
@@ -2391,6 +2398,7 @@ function ChecklistPage({ currentUser, users, checklists, setChecklists, isAdmin 
                 {monthOptions.map(m => <option key={m.key} value={m.key}>{m.label}</option>)}
               </select>
               {!canEdit && <span style={{ fontSize: 12, color: "#9a8a7a", alignSelf: "center" }}>👁 View only</span>}
+              {graceNote && <span style={{ fontSize: 12, background: "#fde8d8", color: "#c4704a", padding: "3px 8px", borderRadius: 6, fontWeight: 600, alignSelf: "center" }}>Editable until the 7th</span>}
               {isSuperAdmin && viewUserId !== currentUser.id && <span style={{ fontSize: 12, background: "#fde8d8", color: "#c4704a", padding: "3px 8px", borderRadius: 6, fontWeight: 600, alignSelf: "center" }}>Admin editing</span>}
             </div>
 
