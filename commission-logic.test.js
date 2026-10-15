@@ -201,6 +201,19 @@ test("both Instructure sales count, and Justin stays outside the pool", () => {
   assert.notEqual(withoutPuteriDeal.people.find(p => p.key === "puteri").pro, puteri.pro);
 });
 
+test("July stays at King's figures while the held deals are still open", () => {
+  const month = julyMonth({
+    salesEntries: julySales().filter(s => s.id !== 6),
+  });
+  assert.equal(month.useDecision, true);
+  assert.equal(month.pool, 11916.43);
+  assert.equal(month.readyTotal, 8224.18);
+  assert.ok(Math.abs(month.npbt - 159737.47) < 0.02);
+  assert.equal(month.heldTotal, 3692.25);
+  assert.equal(month.people.find(p => p.key === "wilson").readyToPay, 4215.23);
+  assert.equal(month.people.find(p => p.key === "puteri").readyToPay, 1344.41);
+});
+
 test("collecting a held deal releases that commission into ready to pay", () => {
   const month = julyMonth({
     collections: [...julyCollections(), { deal_id: "gutor", amount: 1139.25 }],

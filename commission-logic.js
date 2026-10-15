@@ -17,11 +17,14 @@ export const COMMISSION_PEOPLE = [
 
 export const JULY_2026_BATCH_ID = "20260715-0000-4000-8000-000000000001";
 
-// King's approved July 2026 rounding. The scheme totals are
-// pool RM 11,916.43, held RM 3,692.25, ready RM 8,224.18.
-// Each person's share is rounded to the cent, so the lines sum to one cent less.
+// King's approved July 2026 payout. These cents are final while the
+// uncollected hold is still RM 3,692.25. A later collection leaves this
+// record and follows the live formula. Person lines round to the cent,
+// so they sum to one cent less than the scheme totals.
 export const JULY_2026_DECISION = {
   monthKey: "2026-07",
+  npbt: 159737.47,
+  grossPool: 15973.75,
   pool: 11916.43,
   heldTotal: 3692.25,
   readyTotal: 8224.18,
@@ -404,7 +407,7 @@ export function composeCommissionMonth(calc, batches) {
   const monthBatches = (batches || []).filter(b => b.month_key === calc.monthKey);
   const { paid, events } = paidByPerson(monthBatches);
   const decision = calc.monthKey === JULY_2026_DECISION.monthKey
-    && Math.abs(money(calc.pool) - JULY_2026_DECISION.pool) < 0.02
+    && calc.qualified
     && Math.abs(money(calc.heldTotal) - JULY_2026_DECISION.heldTotal) < 0.02
     ? JULY_2026_DECISION
     : null;
@@ -439,6 +442,10 @@ export function composeCommissionMonth(calc, batches) {
   const approvedBatch = monthBatches.find(b => b.status === "approved") || null;
   return {
     ...calc,
+    npbt: decision ? decision.npbt : calc.npbt,
+    grossPool: decision ? decision.grossPool : calc.grossPool,
+    pool: decision ? decision.pool : calc.pool,
+    readyTotal: decision ? decision.readyTotal : calc.readyTotal,
     people,
     useDecision: !!decision,
     approvedBatch,
