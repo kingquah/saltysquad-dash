@@ -6,6 +6,8 @@ import {
   allocateCents,
   buildCommissionMonth,
   buildCommissionYear,
+  canViewCommissions,
+  commissionsRequestedFromLocation,
   composeCommissionMonth,
   ensureJulySeed,
   entitySplit,
@@ -309,6 +311,25 @@ test("commission migration is new tables plus the July seed, and does not touch 
   assert.equal(/alter table traffic_/i.test(section), false);
   assert.equal(/instructure/i.test(section), false);
   assert.equal(/^\s*insert\s+into\s+traffic/im.test(section), false);
+});
+
+test("only King, Wilson, and Puteri can open commissions", () => {
+  assert.equal(canViewCommissions({ id: 1, email: "king@saltycustoms.com" }), true);
+  assert.equal(canViewCommissions({ id: 2, email: "wilson@saltycustoms.com" }), true);
+  assert.equal(canViewCommissions({ id: 3, email: "puteri@saltycustoms.com" }), true);
+  assert.equal(canViewCommissions({ id: "2", email: "someone@else.com" }), true);
+  assert.equal(canViewCommissions({ id: 99, email: "Puteri@SaltyCustoms.com" }), true);
+  assert.equal(canViewCommissions({ id: 6, email: "leon@saltycustoms.com" }), false);
+  assert.equal(canViewCommissions({ id: 8, email: "justin@saltycustoms.com" }), false);
+  assert.equal(canViewCommissions({ id: 4, email: "adamo@saltycustoms.com" }), false);
+  assert.equal(canViewCommissions(null), false);
+  assert.equal(commissionsRequestedFromLocation({ hash: "#commissions", search: "" }), true);
+  assert.equal(commissionsRequestedFromLocation({ hash: "", search: "?page=commissions" }), true);
+  assert.equal(commissionsRequestedFromLocation({ hash: "#dashboard", search: "?page=budget" }), false);
+  assert.equal(commissionsRequestedFromLocation(null), false);
+  const dash = fs.readFileSync(new URL("./saltysquad-dash.jsx", import.meta.url), "utf8");
+  assert.match(dash, /allowCommissions && <CommissionsPage/);
+  assert.match(dash, /allowCommissions \? \[\{ id: "commissions"/);
 });
 
 test("the commissions screen does not mention an Instructure review", () => {

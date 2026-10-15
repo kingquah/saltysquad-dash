@@ -4,6 +4,7 @@ import { BUDGET_STRUCTURE, BUDGET_MONTHS, BUDGET_INPUT_KEYS, BUDGET_LABELS, BUDG
 import { DEFAULT_ROCKS } from "./rocks-seed.js";
 import { TrafficBoardPage, LiveCashIndicator } from "./traffic-board.jsx";
 import { CommissionsPage } from "./commissions.jsx";
+import { canViewCommissions, commissionsRequestedFromLocation } from "./commission-logic.js";
 import { checklistMonthEditState } from "./checklist-month-edit.js";
 import * as XLSX from "xlsx";
 
@@ -987,6 +988,25 @@ export default function App() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    function syncCommissionsLink() {
+      if (!commissionsRequestedFromLocation(window.location)) return;
+      if (!currentUser) return;
+      if (canViewCommissions(currentUser)) {
+        setPage("commissions");
+        return;
+      }
+      const url = new URL(window.location.href);
+      url.searchParams.delete("page");
+      if (url.hash.replace(/^#/, "").split(/[?&]/)[0].toLowerCase() === "commissions") url.hash = "";
+      window.history.replaceState(null, "", url.pathname + url.search + url.hash);
+      setPage(prev => (prev === "commissions" ? "dashboard" : prev));
+    }
+    syncCommissionsLink();
+    window.addEventListener("hashchange", syncCommissionsLink);
+    return () => window.removeEventListener("hashchange", syncCommissionsLink);
+  }, [currentUser]);
+
+  useEffect(() => {
     let cancelled = false;
     async function loadData() {
       const [usersRes, leaveRes, salesRes, salesEntriesRes, checklistRes] = await Promise.all([
@@ -1028,6 +1048,16 @@ export default function App() {
 
   const isAdmin = currentUser.role === "admin" || currentUser.role === "supervisor";
   const isSuperAdmin = currentUser.role === "admin"; // founder only
+  const allowCommissions = canViewCommissions(currentUser);
+  const visiblePage = page === "commissions" && !allowCommissions ? "dashboard" : page;
+
+  function goTo(id) {
+    if (id === "commissions" && !allowCommissions) {
+      setPage("dashboard");
+      return;
+    }
+    setPage(id);
+  }
 
   // Dashboard + Sales tab read "Achieved" live from Scoreboard sales_closed entries.
   const salesLive = mergeAchievedFromEntries(sales, salesEntries);
@@ -1069,7 +1099,7 @@ export default function App() {
     { id: "checklist", label: "Integrity", icon: "✅" },
     { id: "rocks", label: "Rocks", icon: "🪨" },
     { id: "traffic", label: "Traffic Board", icon: "🚦" },
-    { id: "commissions", label: "Commissions", icon: "💸" },
+    ...(allowCommissions ? [{ id: "commissions", label: "Commissions", icon: "💸" }] : []),
     ...(isAdmin ? [{ id: "budget", label: "Budget", icon: "📒" }] : []),
     { id: "docs", label: "Documents", icon: "📁" },
     { id: "scoreboard", label: "Scoreboard", icon: "🏆" },
@@ -1087,7 +1117,7 @@ export default function App() {
         </div>
         <nav className="top-nav" style={{ display: "flex", gap: 4 }}>
           {nav.map(n => (
-            <button key={n.id} onClick={() => setPage(n.id)} style={{ background: page === n.id ? "#fde8d8" : "transparent", color: page === n.id ? "#c4704a" : "#7a6a5a", border: "none", borderRadius: 8, padding: "6px 14px", cursor: "pointer", fontSize: 13, fontWeight: page === n.id ? 700 : 400, transition: "all 0.15s" }}>
+            <button key={n.id} onClick={() => goTo(n.id)} style={{ background: visiblePage === n.id ? "#fde8d8" : "transparent", color: visiblePage === n.id ? "#c4704a" : "#7a6a5a", border: "none", borderRadius: 8, padding: "6px 14px", cursor: "pointer", fontSize: 13, fontWeight: visiblePage === n.id ? 700 : 400, transition: "all 0.15s" }}>
               {n.icon} {n.label}
             </button>
           ))}
@@ -1103,24 +1133,24 @@ export default function App() {
       </header>
 
       {/* PAGE CONTENT */}
-      <main className="main-content" style={{ flex: 1, padding: "28px 32px", maxWidth: page === "traffic" || page === "commissions" ? 1440 : 1200, width: "100%", margin: "0 auto", ...(page === "traffic" || page === "commissions" ? { boxSizing: "border-box", minWidth: 0 } : {}) }}>
-        {page === "dashboard" && <DashboardPage currentUser={currentUser} users={users} leaveRequests={leaveRequests} checklists={checklists} sales={salesLive} setSales={setSales} isAdmin={isAdmin} setPage={setPage} onLeaveAction={handleLeaveAction} />}
-        {page === "leave" && <LeavePage currentUser={currentUser} users={users} setUsers={setUsers} leaveRequests={leaveRequests} setLeaveRequests={setLeaveRequests} isAdmin={isAdmin} onLeaveAction={handleLeaveAction} />}
+      <main className="main-content" style={{ flex: 1, padding: "28px 32px", maxWidth: visiblePage === "traffic" || visiblePage === "commissions" ? 1440 : 1200, width: "100%", margin: "0 auto", ...(visiblePage === "traffic" || visiblePage === "commissions" ? { boxSizing: "border-box", minWidth: 0 } : {}) }}>
+        {visiblePage === "dashboard" && <DashboardPage currentUser={currentUser} users={users} leaveRequests={leaveRequests} checklists={checklists} sales={salesLive} setSales={setSales} isAdmin={isAdmin} setPage={goTo} onLeaveAction={handleLeaveAction} />}
+        {visiblePage === "leave" && <LeavePage currentUser={currentUser} users={users} setUsers={setUsers} leaveRequests={leaveRequests} setLeaveRequests={setLeaveRequests} isAdmin={isAdmin} onLeaveAction={handleLeaveAction} />}
 
-        {page === "checklist" && <ChecklistPage currentUser={currentUser} users={users} checklists={checklists} setChecklists={setChecklists} isAdmin={isAdmin} />}
-        {page === "budget" && isAdmin && <BudgetPage currentUser={currentUser} salesEntries={salesEntries} isEditor={isAdmin} />}
-        {page === "docs" && <DocsPage docModal={docModal} setDocModal={setDocModal} />}
-        {page === "scoreboard" && <ScoreboardPage currentUser={currentUser} users={users} isAdmin={isAdmin} onSalesEntriesChanged={refreshSalesEntries} />}
-        {page === "rocks" && <RocksPage currentUser={currentUser} users={users} isAdmin={isAdmin} />}
-        {page === "traffic" && <TrafficBoardPage currentUser={currentUser} users={users} canWrite={isAdmin} />}
-        {page === "commissions" && <CommissionsPage currentUser={currentUser} users={users} canMarkPaid={isSuperAdmin} />}
-        {page === "admin" && isSuperAdmin && <AdminPage users={users} setUsers={setUsers} leaveRequests={leaveRequests} setLeaveRequests={setLeaveRequests} checklists={checklists} />}
+        {visiblePage === "checklist" && <ChecklistPage currentUser={currentUser} users={users} checklists={checklists} setChecklists={setChecklists} isAdmin={isAdmin} />}
+        {visiblePage === "budget" && isAdmin && <BudgetPage currentUser={currentUser} salesEntries={salesEntries} isEditor={isAdmin} />}
+        {visiblePage === "docs" && <DocsPage docModal={docModal} setDocModal={setDocModal} />}
+        {visiblePage === "scoreboard" && <ScoreboardPage currentUser={currentUser} users={users} isAdmin={isAdmin} onSalesEntriesChanged={refreshSalesEntries} />}
+        {visiblePage === "rocks" && <RocksPage currentUser={currentUser} users={users} isAdmin={isAdmin} />}
+        {visiblePage === "traffic" && <TrafficBoardPage currentUser={currentUser} users={users} canWrite={isAdmin} />}
+        {visiblePage === "commissions" && allowCommissions && <CommissionsPage currentUser={currentUser} users={users} canMarkPaid={isSuperAdmin} />}
+        {visiblePage === "admin" && isSuperAdmin && <AdminPage users={users} setUsers={setUsers} leaveRequests={leaveRequests} setLeaveRequests={setLeaveRequests} checklists={checklists} />}
       </main>
 
       {/* BOTTOM TAB BAR — mobile only, controlled by CSS */}
       <nav className="bottom-tab-bar">
         {nav.map(n => (
-          <button key={n.id} className={`bottom-tab-btn${page === n.id ? " active" : ""}`} onClick={() => setPage(n.id)}>
+          <button key={n.id} className={`bottom-tab-btn${visiblePage === n.id ? " active" : ""}`} onClick={() => goTo(n.id)}>
             <span className="bottom-tab-icon">{n.icon}</span>
             <span className="bottom-tab-label">{n.label}</span>
           </button>
