@@ -259,6 +259,253 @@ grant select, insert, update, delete on traffic_costs        to anon, authentica
 grant select, insert, update, delete on traffic_audit        to anon, authenticated, service_role;
 -- >>> TRAFFIC_BOARD_MIGRATION_END
 
+-- >>> COMMISSIONS_MIGRATION_START
+-- ── NEW TABLES ONLY — Commissions (production migration) ────────────────────
+-- Run THIS SECTION in Supabase → SQL Editor on the live project.
+-- Idempotent. Safe to re-run.
+-- Does not ALTER users, sales_entries, budget_*, or traffic_* tables.
+-- Does not enable RLS on existing tables.
+-- Seeds July 2026: Nokia S00359 excluded until collected, and one approved
+-- (not paid) payout batch. It does not mark anything paid.
+-- Not applied by the app. Run it by hand when you want the tables live.
+
+-- 13. EXCLUSIONS — a deal the owner keeps out of the pool until it is collected.
+create table if not exists commission_exclusions (
+  id               uuid primary key default gen_random_uuid(),
+  month_key        text not null,
+  deal_id          uuid,
+  aca_id           text,
+  project_name     text,
+  note             text,
+  active           boolean not null default true,
+  created_by       integer,
+  created_by_name  text,
+  created_at       timestamptz not null default now()
+);
+
+create unique index if not exists commission_exclusions_month_aca_uidx
+  on commission_exclusions (month_key, lower(btrim(aca_id)))
+  where aca_id is not null and btrim(aca_id) <> '' and active;
+
+create unique index if not exists commission_exclusions_month_deal_uidx
+  on commission_exclusions (month_key, deal_id)
+  where deal_id is not null and active;
+
+-- 14. PAYOUT BATCHES — approved means ready for the next payroll.
+--     paid is immutable: one payroll date, never edited, never paid twice.
+create table if not exists commission_payout_batches (
+  id                uuid primary key default gen_random_uuid(),
+  month_key         text not null,
+  status            text not null check (status in ('approved', 'paid')),
+  payroll_date      date,
+  note              text,
+  approved_by       integer,
+  approved_by_name  text,
+  approved_at       timestamptz,
+  paid_by           integer,
+  paid_by_name      text,
+  paid_at           timestamptz,
+  created_at        timestamptz not null default now(),
+  constraint commission_paid_has_payroll check (status <> 'paid' or payroll_date is not null)
+);
+
+create unique index if not exists commission_one_open_batch_uidx
+  on commission_payout_batches (month_key)
+  where status = 'approved';
+
+-- 15. PAYOUT LINES — one row per person in the batch. MY + SG = amount.
+create table if not exists commission_payout_lines (
+  id           uuid primary key default gen_random_uuid(),
+  batch_id     uuid not null references commission_payout_batches(id) on delete cascade,
+  user_id      integer,
+  person_key   text not null check (person_key in ('king', 'leon', 'wilson', 'puteri')),
+  person_name  text not null,
+  amount       numeric(14, 2) not null check (amount >= 0),
+  amount_my    numeric(14, 2) not null check (amount_my >= 0),
+  amount_sg    numeric(14, 2) not null check (amount_sg >= 0),
+  unique (batch_id, person_key),
+  constraint commission_line_entity_split check (round(amount_my + amount_sg, 2) = round(amount, 2))
+);
+
+-- 16. AUDIT — who approved, excluded, or marked a batch paid.
+create table if not exists commission_audit (
+  id          uuid primary key default gen_random_uuid(),
+  batch_id    uuid,
+  month_key   text,
+  action      text not null,
+  old_value   text,
+  new_value   text,
+  user_id     integer,
+  user_name   text,
+  created_at  timestamptz not null default now()
+);
+
+create index if not exists commission_audit_created_idx on commission_audit (created_at desc);
+create index if not exists commission_batches_month_idx on commission_payout_batches (month_key);
+
+create or replace function public.commission_guard_batch()
+returns trigger
+language plpgsql
+as $$
+declare
+  actor_role text;
+begin
+  if tg_op = 'DELETE' then
+    if old.status = 'paid' then
+      raise exception 'Paid commission batches are immutable';
+    end if;
+    return old;
+  end if;
+
+  if tg_op = 'UPDATE' and old.status = 'paid' then
+    raise exception 'Paid commission batches are immutable';
+  end if;
+
+  if new.status = 'paid' and (tg_op = 'INSERT' or old.status is distinct from 'paid') then
+    if new.payroll_date is null then
+      raise exception 'A paid commission batch needs a payroll date';
+    end if;
+    select role into actor_role from public.users where id = new.paid_by;
+    if actor_role is distinct from 'admin' then
+      raise exception 'Only an admin can mark a commission batch paid';
+    end if;
+    if new.paid_at is null then
+      new.paid_at = now();
+    end if;
+  end if;
+
+  if tg_op = 'UPDATE' and old.status is distinct from 'paid' and new.status = 'paid' then
+    insert into public.commission_audit (batch_id, month_key, action, old_value, new_value, user_id, user_name)
+    values (
+      new.id,
+      new.month_key,
+      'marked_paid',
+      old.status,
+      'paid ' || to_char(new.payroll_date, 'YYYY-MM-DD'),
+      new.paid_by,
+      new.paid_by_name
+    );
+  end if;
+
+  return new;
+end;
+$$;
+
+create or replace function public.commission_guard_line()
+returns trigger
+language plpgsql
+as $$
+declare
+  batch_status text;
+  bid uuid;
+begin
+  bid := case when tg_op = 'DELETE' then old.batch_id else new.batch_id end;
+  select status into batch_status from public.commission_payout_batches where id = bid;
+  if batch_status = 'paid' then
+    raise exception 'Paid commission batches are immutable';
+  end if;
+  if tg_op = 'DELETE' then
+    return old;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists commission_batches_guard on public.commission_payout_batches;
+create trigger commission_batches_guard
+  before insert or update or delete on public.commission_payout_batches
+  for each row execute function public.commission_guard_batch();
+
+drop trigger if exists commission_lines_guard on public.commission_payout_lines;
+create trigger commission_lines_guard
+  before insert or update or delete on public.commission_payout_lines
+  for each row execute function public.commission_guard_line();
+
+revoke all on function public.commission_guard_batch() from public, anon, authenticated;
+revoke all on function public.commission_guard_line() from public, anon, authenticated;
+
+alter table commission_exclusions    disable row level security;
+alter table commission_payout_batches disable row level security;
+alter table commission_payout_lines  disable row level security;
+alter table commission_audit         disable row level security;
+
+grant select, insert, update, delete on commission_exclusions     to anon, authenticated, service_role;
+grant select, insert, update, delete on commission_payout_batches to anon, authenticated, service_role;
+grant select, insert, update, delete on commission_payout_lines   to anon, authenticated, service_role;
+grant select, insert, update, delete on commission_audit          to anon, authenticated, service_role;
+
+-- July 2026 seed. Nokia stays out of the pool until it is collected.
+insert into commission_exclusions (month_key, deal_id, aca_id, project_name, note, active, created_by_name)
+select '2026-07', d.id, 'S00359', coalesce(d.project_name, 'Nokia (Via Eventually)'), 'Excluded until collected', true, 'King Quah'
+from traffic_deals d
+where lower(btrim(d.aca_id)) = 's00359'
+  and not exists (
+    select 1 from commission_exclusions e
+    where e.month_key = '2026-07' and lower(btrim(e.aca_id)) = 's00359'
+  )
+limit 1;
+
+insert into commission_exclusions (month_key, deal_id, aca_id, project_name, note, active, created_by_name)
+select '2026-07', null, 'S00359', 'Nokia (Via Eventually)', 'Excluded until collected', true, 'King Quah'
+where not exists (
+  select 1 from commission_exclusions e
+  where e.month_key = '2026-07' and lower(btrim(e.aca_id)) = 's00359'
+);
+
+insert into commission_payout_batches (
+  id, month_key, status, payroll_date, note, approved_by, approved_by_name, approved_at
+)
+select
+  '20260715-0000-4000-8000-000000000001',
+  '2026-07',
+  'approved',
+  null,
+  'July 2026 ready to pay, approved by King. Not yet marked paid.',
+  (select id from users where email = 'king@saltycustoms.com' limit 1),
+  'King Quah',
+  timestamptz '2026-07-31 00:00:00+00'
+where not exists (
+  select 1 from commission_payout_batches b
+  where b.id = '20260715-0000-4000-8000-000000000001'
+     or (b.month_key = '2026-07' and b.status = 'approved')
+);
+
+insert into commission_payout_lines (batch_id, user_id, person_key, person_name, amount, amount_my, amount_sg)
+select '20260715-0000-4000-8000-000000000001', u.id, v.person_key, v.person_name, v.amount, v.amount_my, v.amount_sg
+from (
+  values
+    ('wilson@saltycustoms.com', 'wilson', 'Wilson Goh',  3812.57::numeric, 2069.56::numeric, 1743.01::numeric),
+    ('leon@saltycustoms.com',   'leon',   'Leon Lim',    1480.18::numeric,  803.48::numeric,  676.70::numeric),
+    ('puteri@saltycustoms.com', 'puteri', 'Puteri Inez', 1215.99::numeric,  660.07::numeric,  555.92::numeric),
+    ('king@saltycustoms.com',   'king',   'King Quah',    929.82::numeric,  504.73::numeric,  425.09::numeric)
+) as v(email, person_key, person_name, amount, amount_my, amount_sg)
+left join users u on u.email = v.email
+where exists (
+  select 1 from commission_payout_batches b
+  where b.id = '20260715-0000-4000-8000-000000000001'
+)
+and not exists (
+  select 1 from commission_payout_lines l
+  where l.batch_id = '20260715-0000-4000-8000-000000000001' and l.person_key = v.person_key
+);
+
+insert into commission_audit (batch_id, month_key, action, new_value, user_name)
+select
+  '20260715-0000-4000-8000-000000000001',
+  '2026-07',
+  'approved',
+  'Ready to pay Wilson RM 3812.57, Leon RM 1480.18, Puteri RM 1215.99, King RM 929.82',
+  'King Quah'
+where exists (
+  select 1 from commission_payout_batches b
+  where b.id = '20260715-0000-4000-8000-000000000001'
+)
+and not exists (
+  select 1 from commission_audit a
+  where a.batch_id = '20260715-0000-4000-8000-000000000001' and a.action = 'approved'
+);
+-- >>> COMMISSIONS_MIGRATION_END
+
 -- OPTIONAL DEMO SEED — NOT EXECUTED.
 -- Every line below is a SQL comment. Nothing here runs if you execute this file.
 -- Do not paste it into production. It is a shape example only, not a balance.

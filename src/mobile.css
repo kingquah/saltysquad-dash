@@ -38,8 +38,8 @@ input, textarea, select {
   /* ── MAIN CONTENT ── */
   .main-content {
     padding: 16px 14px !important;
-    /* Clears a wrapped tab bar (up to three rows) plus the home indicator. */
-    padding-bottom: calc(196px + env(safe-area-inset-bottom)) !important;
+    /* Clears a wrapped tab bar (up to four rows) plus the home indicator. */
+    padding-bottom: calc(260px + env(safe-area-inset-bottom)) !important;
     min-width: 0 !important;
     max-width: 100% !important;
     box-sizing: border-box;
@@ -270,6 +270,33 @@ input, textarea, select {
     position: static !important;
     left: auto !important;
     box-shadow: none !important;
+  }
+
+  /* Commissions: one line per row, scroll sideways, same idea as Traffic Board. */
+  .commission-summary {
+    grid-template-columns: 1fr 1fr !important;
+  }
+  .commission-card-wide {
+    grid-column: 1 / -1;
+  }
+  .commission-card-value {
+    white-space: nowrap !important;
+    overflow-wrap: normal !important;
+    word-break: keep-all !important;
+  }
+  .commission-person-grid {
+    grid-template-columns: 1fr !important;
+  }
+  .table-scroll .commission-table {
+    table-layout: auto !important;
+    width: max-content !important;
+    min-width: 100% !important;
+  }
+  .commission-table th,
+  .commission-table td {
+    white-space: nowrap !important;
+    overflow-wrap: normal !important;
+    word-break: normal !important;
   }
 
   /* ── SALES PAGE ── */
