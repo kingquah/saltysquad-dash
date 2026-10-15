@@ -10,21 +10,22 @@ import { COMMISSION_PEOPLE } from "./commission-logic.js";
 
 const month = {
   monthKey: "2026-07",
-  npbt: 159737.47,
+  npbt: 151881.29,
+  npbtExNokia: 111308.07,
   qualified: true,
-  pool: 11916.43,
-  readyTotal: 8224.18,
-  readyPayroll: 8224.17,
+  pool: 11130.81,
+  readyTotal: 7438.56,
+  readyPayroll: 7438.56,
   heldTotal: 3692.25,
   pendingTotal: 4057.32,
   paidTotal: 0,
   useDecision: true,
   entityBase: { my: 281670.73, sg: 237225.8 },
   people: [
-    { key: "wilson", name: "Wilson Goh", full: 6107.66, held: 1892.43, readyToPay: 4215.23, pending: 3000, paid: 0, readyMy: 2288.14, readySg: 1927.09, paidMy: 0, paidSg: 0, paidEvents: [] },
-    { key: "leon", name: "Leon Lim", full: 2371.22, held: 734.71, readyToPay: 1636.51, pending: 500, paid: 0, readyMy: 888.34, readySg: 748.17, paidMy: 0, paidSg: 0, paidEvents: [] },
-    { key: "puteri", name: "Puteri Inez", full: 1947.99, held: 603.58, readyToPay: 1344.41, pending: 400, paid: 0, readyMy: 729.78, readySg: 614.63, paidMy: 0, paidSg: 0, paidEvents: [] },
-    { key: "king", name: "King Quah", full: 1489.55, held: 461.53, readyToPay: 1028.02, pending: 157.32, paid: 0, readyMy: 558.04, readySg: 469.98, paidMy: 0, paidSg: 0, paidEvents: [] },
+    { key: "wilson", name: "Wilson Goh", full: 5705.00, held: 1892.43, readyToPay: 3812.57, pending: 3000, paid: 0, readyMy: 2069.56, readySg: 1743.01, paidMy: 0, paidSg: 0, paidEvents: [] },
+    { key: "leon", name: "Leon Lim", full: 2214.89, held: 734.71, readyToPay: 1480.18, pending: 500, paid: 0, readyMy: 803.48, readySg: 676.70, paidMy: 0, paidSg: 0, paidEvents: [] },
+    { key: "puteri", name: "Puteri Inez", full: 1819.57, held: 603.58, readyToPay: 1215.99, pending: 400, paid: 0, readyMy: 660.07, readySg: 555.92, paidMy: 0, paidSg: 0, paidEvents: [] },
+    { key: "king", name: "King Quah", full: 1391.35, held: 461.53, readyToPay: 929.82, pending: 157.32, paid: 0, readyMy: 504.73, readySg: 425.09, paidMy: 0, paidSg: 0, paidEvents: [] },
   ],
   deals: [
     { id: "nokia", aca_id: "S00359", project_name: "Nokia (Via Eventually)", entityShort: "MY", amount: 115923.48, collected: 0, outstanding: 115923.48, commission: 4057.32, status: "pending", statusLabel: "Pending — excluded until collected" },
@@ -71,13 +72,15 @@ test("admin sees July figures, held deals, and the payroll action", async () => 
     onExclude: () => {},
     onInclude: () => {},
   }, "admin");
-  assert.match(html, /RM 11,916\.43/);
-  assert.match(html, /RM 8,224\.18/);
+  assert.match(html, /RM 151,881\.29/);
+  assert.match(html, /RM 111,308\.07/);
+  assert.match(html, /RM 11,130\.81/);
+  assert.match(html, /RM 7,438\.56/);
   assert.match(html, /RM 3,692\.25/);
-  assert.match(html, /RM 4,215\.23/);
-  assert.match(html, /RM 1,636\.51/);
-  assert.match(html, /RM 1,344\.41/);
-  assert.match(html, /RM 1,028\.02/);
+  assert.match(html, /RM 3,812\.57/);
+  assert.match(html, /RM 1,480\.18/);
+  assert.match(html, /RM 1,215\.99/);
+  assert.match(html, /RM 929\.82/);
   assert.match(html, /Wilson Goh/);
   assert.match(html, /Leon Lim/);
   assert.match(html, /Puteri Inez/);
@@ -117,7 +120,7 @@ test("staff can read the tracker and cannot mark it paid", async () => {
     onInclude: () => {},
   }, "staff");
   assert.match(html, /View only/);
-  assert.match(html, /RM 4,215\.23/);
+  assert.match(html, /RM 3,812\.57/);
   assert.match(html, /One-time setup/);
   assert.equal(html.includes("Mark batch paid"), false);
   assert.equal(html.includes("Exclude until collected"), false);

@@ -70,7 +70,6 @@ function julySales() {
     { id: 3, user_id: 6, client_name: "Leon book", amount: 52513.25, entry_date: "2026-07-10" },
     { id: 4, user_id: 3, client_name: "Puteri book", amount: 19449.07, entry_date: "2026-07-12" },
     { id: 5, user_id: 3, client_name: "Instructure", amount: 7856.17, entry_date: "2026-07-31" },
-    { id: 6, user_id: 8, client_name: "Instructure SG", amount: 7856.18, entry_date: "2026-07-28" },
     { id: 7, user_id: 8, client_name: "Justin book", amount: 164017.25, entry_date: "2026-07-20" },
   ];
 }
@@ -141,13 +140,14 @@ test("10% of uncollected gross profit, per deal, rounded to the cent", () => {
 
 test("July 2026 matches King's pool, hold, and approved shares", () => {
   const month = julyMonth();
-  assert.ok(Math.abs(month.npbt - 159737.47) < 0.02, `npbt ${month.npbt}`);
+  assert.ok(Math.abs(month.npbt - 151881.29) < 0.02, `npbt ${month.npbt}`);
+  assert.equal(month.npbtExNokia, 111308.07);
   assert.equal(month.qualified, true);
-  assert.equal(month.grossPool, 15973.75);
+  assert.equal(month.grossPool, 15188.13);
   assert.equal(month.pendingTotal, 4057.32);
-  assert.equal(month.pool, 11916.43);
+  assert.equal(month.pool, 11130.81);
   assert.equal(month.heldTotal, 3692.25);
-  assert.equal(month.readyTotal, 8224.18);
+  assert.equal(month.readyTotal, 7438.56);
   assert.equal(month.useDecision, true);
 
   const by = Object.fromEntries(month.people.map(p => [p.key, p]));
@@ -158,7 +158,7 @@ test("July 2026 matches King's pool, hold, and approved shares", () => {
     assert.equal(by[key].readyToPay, want.ready, key);
     assert.equal(by[key].paid, 0, key);
   }
-  assert.equal(month.readyPayroll, 8224.17);
+  assert.equal(month.readyPayroll, 7438.56);
   assert.equal(month.people.reduce((s, p) => s + p.held, 0), 3692.25);
   assert.equal(month.people.reduce((s, p) => Math.round((s + p.pending) * 100) / 100, 0), 4057.32);
 
@@ -183,16 +183,29 @@ test("July 2026 matches King's pool, hold, and approved shares", () => {
   }
 });
 
-test("both Instructure sales count, and Justin stays outside the pool", () => {
+test("Puteri's Instructure sale counts, and Justin's duplicate does not", () => {
   const calc = buildCommissionMonth({ ...julyInput(), monthKey: "2026-07" });
   const puteri = calc.people.find(p => p.key === "puteri");
   const wilson = calc.people.find(p => p.key === "wilson");
   assert.equal(puteri.grossSales, 27305.24);
   assert.equal(wilson.grossSales, 390984.26);
   assert.equal(wilson.sales, 275060.78);
+  assert.equal(calc.pool, 11130.81);
+  assert.equal(calc.readyTotal, 7438.56);
+  assert.equal(calc.heldTotal, 3692.25);
+  assert.equal(wilson.full, 5705.01);
+  assert.equal(puteri.full, 1819.56);
   assert.equal(calc.people.find(p => p.key === "king").sales, 0);
   assert.equal(personKeyForUser({ name: "Justin Shye" }), null);
   assert.equal(calc.people.some(p => p.key === "justin"), false);
+  const withDuplicate = buildCommissionMonth({
+    ...julyInput({
+      salesEntries: [...julySales(), { id: 6, user_id: 8, client_name: "Instructure SG", amount: 7856.18, entry_date: "2026-07-28" }],
+    }),
+    monthKey: "2026-07",
+  });
+  assert.ok(withDuplicate.npbt > calc.npbt + 7856);
+  assert.equal(withDuplicate.pool, 11916.43);
   const withoutPuteriDeal = buildCommissionMonth({
     ...julyInput({ salesEntries: julySales().filter(s => s.id !== 5) }),
     monthKey: "2026-07",
@@ -201,17 +214,15 @@ test("both Instructure sales count, and Justin stays outside the pool", () => {
   assert.notEqual(withoutPuteriDeal.people.find(p => p.key === "puteri").pro, puteri.pro);
 });
 
-test("July stays at King's figures while the held deals are still open", () => {
-  const month = julyMonth({
-    salesEntries: julySales().filter(s => s.id !== 6),
-  });
+test("July uses King's cents when the live pool and hold still match", () => {
+  const month = julyMonth();
   assert.equal(month.useDecision, true);
-  assert.equal(month.pool, 11916.43);
-  assert.equal(month.readyTotal, 8224.18);
-  assert.ok(Math.abs(month.npbt - 159737.47) < 0.02);
-  assert.equal(month.heldTotal, 3692.25);
-  assert.equal(month.people.find(p => p.key === "wilson").readyToPay, 4215.23);
-  assert.equal(month.people.find(p => p.key === "puteri").readyToPay, 1344.41);
+  assert.equal(month.people.find(p => p.key === "wilson").full, 5705);
+  assert.equal(month.people.find(p => p.key === "puteri").full, 1819.57);
+  assert.equal(month.people.find(p => p.key === "wilson").readyToPay, 3812.57);
+  assert.equal(month.people.find(p => p.key === "puteri").readyToPay, 1215.99);
+  assert.equal(month.people.reduce((s, p) => Math.round((s + p.full) * 100) / 100, 0), 11130.81);
+  assert.equal(month.people.reduce((s, p) => Math.round((s + p.readyToPay) * 100) / 100, 0), 7438.56);
 });
 
 test("collecting a held deal releases that commission into ready to pay", () => {
@@ -219,7 +230,7 @@ test("collecting a held deal releases that commission into ready to pay", () => 
     collections: [...julyCollections(), { deal_id: "gutor", amount: 1139.25 }],
   });
   assert.equal(month.heldTotal, 3611.32);
-  assert.equal(month.readyTotal, 8305.11);
+  assert.equal(month.readyTotal, 7519.49);
   assert.equal(month.useDecision, false);
   assert.equal(month.deals.some(d => d.aca_id === "S00403"), false);
   assert.ok(month.people.every(p => p.readyToPay >= 0));
@@ -255,8 +266,9 @@ test("July seed is used until the database has the rows, and it does not double"
 });
 
 test("entity split and cent allocation sum exactly", () => {
-  const split = entitySplit(4215.23, 281670.73, 237225.8);
-  assert.equal(Math.round((split.my + split.sg) * 100) / 100, 4215.23);
+  const split = entitySplit(3812.57, 281670.73, 237225.8);
+  assert.equal(split.my, 2069.56);
+  assert.equal(split.sg, 1743.01);
   const parts = allocateCents(100, [1, 1, 1]);
   assert.equal(parts.reduce((s, n) => s + n, 0), 100);
   const batch = julyApprovedBatch();
@@ -270,7 +282,7 @@ test("paid batches stay on the history and are not ready again", () => {
   paid.status = "paid";
   paid.payroll_date = "2026-08-25";
   const month = julyMonth({ batches: [paid] });
-  assert.equal(month.people.find(p => p.key === "wilson").paid, 4215.23);
+  assert.equal(month.people.find(p => p.key === "wilson").paid, 3812.57);
   assert.equal(month.people.find(p => p.key === "wilson").readyToPay, 0);
   assert.equal(month.people.find(p => p.key === "wilson").paidEvents[0].payrollDate, "2026-08-25");
 });
@@ -289,7 +301,7 @@ test("commission migration is new tables plus the July seed, and does not touch 
   assert.match(section, /Only an admin can mark a commission batch paid/);
   assert.match(section, /alter table commission_payout_batches\s+disable row level security/);
   assert.match(section, /S00359/);
-  assert.match(section, /4215\.23/);
+  assert.match(section, /3812\.57/);
   assert.match(section, /status\s*=\s*'approved'|status = 'approved'/);
   assert.equal(/alter table users/i.test(section), false);
   assert.equal(/alter table sales_entries/i.test(section), false);
@@ -311,5 +323,5 @@ test("year builder returns twelve months", () => {
   const year = buildCommissionYear(julyInput());
   assert.equal(year.months.length, 12);
   assert.equal(year.months[6].monthKey, "2026-07");
-  assert.equal(year.months[6].pool, 11916.43);
+  assert.equal(year.months[6].pool, 11130.81);
 });

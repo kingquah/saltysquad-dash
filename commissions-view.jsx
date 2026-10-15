@@ -91,7 +91,7 @@ export function CommissionsView({
   const sgPct = entityTotal ? Math.round((1000 - myPct * 10)) / 10 : 0;
 
   const cards = month ? [
-    { label: "NPBT", value: formatRM(month.npbt), hint: monthLabel(month.monthKey) },
+    { label: "NPBT", value: formatRM(month.npbt), hint: month.npbtExNokia ? `Nokia sales and cost left out: ${formatRM(month.npbtExNokia)}` : monthLabel(month.monthKey) },
     { label: "Qualified", value: month.qualified ? "Yes" : "No", hint: month.qualified ? "NPBT is at least RM 100,000" : "NPBT is under RM 100,000" },
     { label: "Pool", value: formatRM(month.pool), hint: month.qualified ? "10% of NPBT, after exclusions" : "No pool this month" },
     { label: "Ready to pay", value: formatRM(readyCard), hint: month.useDecision ? `Payroll lines round to ${formatRM(month.readyPayroll)}` : "Cash already collected", wide: true },

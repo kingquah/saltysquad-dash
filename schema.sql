@@ -474,10 +474,10 @@ insert into commission_payout_lines (batch_id, user_id, person_key, person_name,
 select '20260715-0000-4000-8000-000000000001', u.id, v.person_key, v.person_name, v.amount, v.amount_my, v.amount_sg
 from (
   values
-    ('wilson@saltycustoms.com', 'wilson', 'Wilson Goh',  4215.23::numeric, 2288.14::numeric, 1927.09::numeric),
-    ('leon@saltycustoms.com',   'leon',   'Leon Lim',    1636.51::numeric,  888.34::numeric,  748.17::numeric),
-    ('puteri@saltycustoms.com', 'puteri', 'Puteri Inez', 1344.41::numeric,  729.78::numeric,  614.63::numeric),
-    ('king@saltycustoms.com',   'king',   'King Quah',   1028.02::numeric,  558.04::numeric,  469.98::numeric)
+    ('wilson@saltycustoms.com', 'wilson', 'Wilson Goh',  3812.57::numeric, 2069.56::numeric, 1743.01::numeric),
+    ('leon@saltycustoms.com',   'leon',   'Leon Lim',    1480.18::numeric,  803.48::numeric,  676.70::numeric),
+    ('puteri@saltycustoms.com', 'puteri', 'Puteri Inez', 1215.99::numeric,  660.07::numeric,  555.92::numeric),
+    ('king@saltycustoms.com',   'king',   'King Quah',    929.82::numeric,  504.73::numeric,  425.09::numeric)
 ) as v(email, person_key, person_name, amount, amount_my, amount_sg)
 left join users u on u.email = v.email
 where exists (
@@ -494,7 +494,7 @@ select
   '20260715-0000-4000-8000-000000000001',
   '2026-07',
   'approved',
-  'Ready to pay Wilson RM 4215.23, Leon RM 1636.51, Puteri RM 1344.41, King RM 1028.02',
+  'Ready to pay Wilson RM 3812.57, Leon RM 1480.18, Puteri RM 1215.99, King RM 929.82',
   'King Quah'
 where exists (
   select 1 from commission_payout_batches b

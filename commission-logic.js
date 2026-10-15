@@ -17,22 +17,24 @@ export const COMMISSION_PEOPLE = [
 
 export const JULY_2026_BATCH_ID = "20260715-0000-4000-8000-000000000001";
 
-// King's approved July 2026 payout. These cents are final while the
-// uncollected hold is still RM 3,692.25. A later collection leaves this
-// record and follows the live formula. Person lines round to the cent,
-// so they sum to one cent less than the scheme totals.
+// King's approved July 2026 payout, after Justin's RM 7,856.18 Instructure
+// sale left the Scoreboard. Budget NPBT is RM 151,881.29. Leaving Nokia's
+// sales and cost out of that profit leaves RM 111,308.07, which still
+// qualifies. The pool is RM 11,130.81. Person lines are King's cents:
+// the live split gives Wilson and Puteri one cent the other way.
 export const JULY_2026_DECISION = {
   monthKey: "2026-07",
-  npbt: 159737.47,
-  grossPool: 15973.75,
-  pool: 11916.43,
+  npbt: 151881.29,
+  npbtExNokia: 111308.07,
+  grossPool: 15188.13,
+  pool: 11130.81,
   heldTotal: 3692.25,
-  readyTotal: 8224.18,
+  readyTotal: 7438.56,
   lines: {
-    wilson: { full: 6107.66, held: 1892.43, ready: 4215.23 },
-    leon: { full: 2371.22, held: 734.71, ready: 1636.51 },
-    puteri: { full: 1947.99, held: 603.58, ready: 1344.41 },
-    king: { full: 1489.55, held: 461.53, ready: 1028.02 },
+    wilson: { full: 5705.00, held: 1892.43, ready: 3812.57 },
+    leon: { full: 2214.89, held: 734.71, ready: 1480.18 },
+    puteri: { full: 1819.57, held: 603.58, ready: 1215.99 },
+    king: { full: 1391.35, held: 461.53, ready: 929.82 },
   },
 };
 
@@ -408,6 +410,7 @@ export function composeCommissionMonth(calc, batches) {
   const { paid, events } = paidByPerson(monthBatches);
   const decision = calc.monthKey === JULY_2026_DECISION.monthKey
     && calc.qualified
+    && Math.abs(money(calc.pool) - JULY_2026_DECISION.pool) < 0.02
     && Math.abs(money(calc.heldTotal) - JULY_2026_DECISION.heldTotal) < 0.02
     ? JULY_2026_DECISION
     : null;
@@ -443,6 +446,7 @@ export function composeCommissionMonth(calc, batches) {
   return {
     ...calc,
     npbt: decision ? decision.npbt : calc.npbt,
+    npbtExNokia: decision ? decision.npbtExNokia : null,
     grossPool: decision ? decision.grossPool : calc.grossPool,
     pool: decision ? decision.pool : calc.pool,
     readyTotal: decision ? decision.readyTotal : calc.readyTotal,
