@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef, useMemo, Fragment } from "react";
 import { supabase } from "./supabase";
-import { BUDGET_STRUCTURE, BUDGET_MONTHS, BUDGET_INPUT_KEYS, BUDGET_LABELS, BUDGET_ADDABLE_SECTIONS, SECTION_TO_SUBTOTAL } from "./budget-data.js";
+import { BUDGET_STRUCTURE, BUDGET_MONTHS, BUDGET_INPUT_KEYS, BUDGET_LABELS, BUDGET_ADDABLE_SECTIONS, SECTION_TO_SUBTOTAL, emptyActuals, computeBudgetRows, filterBudgetForStaff, salesClosedByBudgetMonth } from "./budget-data.js";
 import { DEFAULT_ROCKS } from "./rocks-seed.js";
 import { TrafficBoardPage, LiveCashIndicator } from "./traffic-board.jsx";
+import { CommissionsPage } from "./commissions.jsx";
 import { checklistMonthEditState } from "./checklist-month-edit.js";
 import * as XLSX from "xlsx";
 
@@ -1068,6 +1069,7 @@ export default function App() {
     { id: "checklist", label: "Integrity", icon: "✅" },
     { id: "rocks", label: "Rocks", icon: "🪨" },
     { id: "traffic", label: "Traffic Board", icon: "🚦" },
+    { id: "commissions", label: "Commissions", icon: "💸" },
     ...(isAdmin ? [{ id: "budget", label: "Budget", icon: "📒" }] : []),
     { id: "docs", label: "Documents", icon: "📁" },
     { id: "scoreboard", label: "Scoreboard", icon: "🏆" },
@@ -1101,7 +1103,7 @@ export default function App() {
       </header>
 
       {/* PAGE CONTENT */}
-      <main className="main-content" style={{ flex: 1, padding: "28px 32px", maxWidth: page === "traffic" ? 1440 : 1200, width: "100%", margin: "0 auto", ...(page === "traffic" ? { boxSizing: "border-box", minWidth: 0 } : {}) }}>
+      <main className="main-content" style={{ flex: 1, padding: "28px 32px", maxWidth: page === "traffic" || page === "commissions" ? 1440 : 1200, width: "100%", margin: "0 auto", ...(page === "traffic" || page === "commissions" ? { boxSizing: "border-box", minWidth: 0 } : {}) }}>
         {page === "dashboard" && <DashboardPage currentUser={currentUser} users={users} leaveRequests={leaveRequests} checklists={checklists} sales={salesLive} setSales={setSales} isAdmin={isAdmin} setPage={setPage} onLeaveAction={handleLeaveAction} />}
         {page === "leave" && <LeavePage currentUser={currentUser} users={users} setUsers={setUsers} leaveRequests={leaveRequests} setLeaveRequests={setLeaveRequests} isAdmin={isAdmin} onLeaveAction={handleLeaveAction} />}
 
@@ -1111,6 +1113,7 @@ export default function App() {
         {page === "scoreboard" && <ScoreboardPage currentUser={currentUser} users={users} isAdmin={isAdmin} onSalesEntriesChanged={refreshSalesEntries} />}
         {page === "rocks" && <RocksPage currentUser={currentUser} users={users} isAdmin={isAdmin} />}
         {page === "traffic" && <TrafficBoardPage currentUser={currentUser} users={users} canWrite={isAdmin} />}
+        {page === "commissions" && <CommissionsPage currentUser={currentUser} users={users} canMarkPaid={isSuperAdmin} />}
         {page === "admin" && isSuperAdmin && <AdminPage users={users} setUsers={setUsers} leaveRequests={leaveRequests} setLeaveRequests={setLeaveRequests} checklists={checklists} />}
       </main>
 
@@ -2937,129 +2940,6 @@ function bFmt(n) {
   return neg ? `(${s})` : s;
 }
 
-function emptyActuals() {
-  const o = {};
-  for (const m of BUDGET_MONTHS) o[m] = 0;
-  return o;
-}
-
-// Resolve budget + 12 actuals + row total for every structure row (inputs from
-// the DB map; subtotals / net / npm computed live). salesByMonth overrides the
-// auto-linked Total Sales actuals.
-// Splice editor-added custom lines into the fixed structure at the end of their
-// chosen section (before the next header / subtotal).
-// Custom lines normally render at the end of their section. To pin one directly
-// after a specific built-in line instead, map its line_key -> the static key it
-// should follow. (No reorder UI exists, so placement lives here.)
-const CUSTOM_LINE_ANCHOR = {
-  "custom_1783655968860_931": "stripe", // "Stripe Fees for Malaysia" sits right below "Stripe Fee for Singapore"
-};
-
-function buildMergedStructure(customLines) {
-  const mkCustom = c => ({ kind: "input", key: c.line_key, label: c.label, sign: -1, custom: true, section: c.section });
-  const bySection = {};   // section label -> custom lines flushed at section end
-  const anchored = {};    // static key -> custom lines pinned right after it
-  for (const c of customLines) {
-    const after = CUSTOM_LINE_ANCHOR[c.line_key];
-    if (after) (anchored[after] ||= []).push(c);
-    else (bySection[c.section] ||= []).push(c);
-  }
-  const out = [];
-  let cur = null;
-  const flush = () => {
-    if (cur && bySection[cur]) {
-      for (const c of bySection[cur]) out.push(mkCustom(c));
-      bySection[cur] = null;
-    }
-  };
-  for (const row of BUDGET_STRUCTURE) {
-    if (row.kind === "group" || row.kind === "sub") { flush(); cur = row.label; out.push(row); continue; }
-    if (row.kind === "subtotal" || row.kind === "net" || row.kind === "npm") { flush(); cur = null; out.push(row); continue; }
-    out.push(row);
-    if (row.key && anchored[row.key]) { for (const c of anchored[row.key]) out.push(mkCustom(c)); }
-  }
-  flush();
-  return out;
-}
-
-function computeBudgetRows(linesMap, salesByMonth, showArchived) {
-  const customLines = Object.entries(linesMap)
-    .filter(([, v]) => v.is_custom)
-    .map(([k, v]) => ({ line_key: k, label: v.label || k, section: v.section, hidden: v.hidden }));
-  const structure = buildMergedStructure(customLines);
-  const val = {}; // key -> { budget, actuals:{m:n}, total }
-  const get = k => val[k] || { budget: 0, actuals: emptyActuals(), total: 0 };
-  const out = [];
-  for (const row of structure) {
-    if (row.kind === "group" || row.kind === "sub" || row.kind === "spacer") { out.push({ ...row }); continue; }
-
-    if (row.kind === "input") {
-      const stored = linesMap[row.key] || {};
-      const actuals = { ...emptyActuals(), ...(stored.actuals || {}) };
-      if (row.autoActual && salesByMonth) for (const m of BUDGET_MONTHS) actuals[m] = salesByMonth[m] || 0;
-      const total = BUDGET_MONTHS.reduce((a, m) => a + (Number(actuals[m]) || 0), 0);
-      const r = { budget: Number(stored.monthly_budget) || 0, actuals, total };
-      // Archived (deleted) lines are excluded from every subtotal; shown greyed
-      // only when "show archived" is on, never added to `val`.
-      if (stored.hidden) {
-        if (showArchived) out.push({ ...row, ...r, archived: true });
-        continue;
-      }
-      val[row.key] = r;
-      out.push({ ...row, ...r });
-      continue;
-    }
-
-    if (row.kind === "subtotal") {
-      const memberKeys = [...row.members, ...customLines.filter(c => SECTION_TO_SUBTOTAL[c.section] === row.key).map(c => c.line_key)];
-      const actuals = emptyActuals();
-      let budget = 0;
-      for (const mk of memberKeys) { budget += get(mk).budget; for (const m of BUDGET_MONTHS) actuals[m] += get(mk).actuals[m]; }
-      const total = BUDGET_MONTHS.reduce((a, m) => a + actuals[m], 0);
-      const r = { budget, actuals, total };
-      val[row.key] = r;
-      out.push({ ...row, ...r });
-      continue;
-    }
-
-    if (row.kind === "net") {
-      const actuals = emptyActuals();
-      let budget = 0;
-      for (const mk of row.income)  { budget += get(mk).budget; for (const m of BUDGET_MONTHS) actuals[m] += get(mk).actuals[m]; }
-      for (const mk of row.deduct)  { budget -= get(mk).budget; for (const m of BUDGET_MONTHS) actuals[m] -= get(mk).actuals[m]; }
-      const total = BUDGET_MONTHS.reduce((a, m) => a + actuals[m], 0);
-      const r = { budget, actuals, total };
-      val[row.key] = r;
-      out.push({ ...row, ...r });
-      continue;
-    }
-
-    if (row.kind === "npm") {
-      const net = get(row.net), base = get(row.base);
-      const pct = {};
-      for (const m of BUDGET_MONTHS) pct[m] = base.actuals[m] ? (net.actuals[m] / base.actuals[m]) * 100 : 0;
-      out.push({ ...row, pct, total: base.total ? (net.total / base.total) * 100 : 0 });
-      continue;
-    }
-  }
-  return out;
-}
-
-// Staff see only visible input/subtotal rows; headers show only if a child is visible.
-function filterBudgetForStaff(rows, visibility) {
-  const isHeader = r => r.kind === "group" || r.kind === "sub";
-  const out = [];
-  for (let i = 0; i < rows.length; i++) {
-    const r = rows[i];
-    if (isHeader(r)) {
-      let any = false;
-      for (let j = i + 1; j < rows.length && !isHeader(rows[j]); j++) if (rows[j].key && visibility[rows[j].key]) { any = true; break; }
-      if (any) out.push(r);
-    } else if (r.key && visibility[r.key]) out.push(r);
-  }
-  return out;
-}
-
 function budgetAuditTime(ts) {
   if (!ts) return "";
   return new Date(ts).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
@@ -3140,17 +3020,7 @@ function BudgetPage({ currentUser, salesEntries, isEditor }) {
   }, [year]);
 
   // Total Sales actuals auto-linked from Scoreboard "Sales Closed".
-  const salesByMonth = useMemo(() => {
-    const m = {};
-    for (const e of salesEntries || []) {
-      if (!e.entry_date) continue;
-      const d = new Date(e.entry_date);
-      if (d.getFullYear() !== year) continue;
-      const k = BUDGET_MONTHS[d.getMonth()];
-      m[k] = (m[k] || 0) + Number(e.amount || 0);
-    }
-    return m;
-  }, [salesEntries, year]);
+  const salesByMonth = useMemo(() => salesClosedByBudgetMonth(salesEntries, year), [salesEntries, year]);
 
   const rows = computeBudgetRows(lines, salesByMonth, isEditor && showArchived);
   const visibleRows = isEditor ? rows : filterBudgetForStaff(rows, visibility);

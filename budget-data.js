@@ -132,3 +132,142 @@ export const BUDGET_INPUT_KEYS = BUDGET_STRUCTURE.filter(x => x.kind === "input"
 export const BUDGET_LABELS = Object.fromEntries(
   BUDGET_STRUCTURE.filter(x => x.key).map(x => [x.key, x.label])
 );
+
+export function emptyActuals() {
+  const o = {};
+  for (const m of BUDGET_MONTHS) o[m] = 0;
+  return o;
+}
+
+// Same month assignment the Budget tab uses for Total Sales actuals.
+export function salesClosedByBudgetMonth(entries, year) {
+  const m = {};
+  for (const e of entries || []) {
+    if (!e.entry_date) continue;
+    const d = new Date(e.entry_date);
+    if (Number.isNaN(d.getTime()) || d.getFullYear() !== year) continue;
+    const k = BUDGET_MONTHS[d.getMonth()];
+    m[k] = (m[k] || 0) + Number(e.amount || 0);
+  }
+  return m;
+}
+
+export function budgetMonthKeyFromDate(entryDate) {
+  if (!entryDate) return null;
+  const d = new Date(entryDate);
+  if (Number.isNaN(d.getTime())) return null;
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  return `${d.getFullYear()}-${m}`;
+}
+
+// Custom lines normally render at the end of their section. To pin one directly
+// after a specific built-in line instead, map its line_key -> the static key it
+// should follow. (No reorder UI exists, so placement lives here.)
+const CUSTOM_LINE_ANCHOR = {
+  "custom_1783655968860_931": "stripe", // "Stripe Fees for Malaysia" sits right below "Stripe Fee for Singapore"
+};
+
+export function buildMergedStructure(customLines) {
+  const mkCustom = c => ({ kind: "input", key: c.line_key, label: c.label, sign: -1, custom: true, section: c.section });
+  const bySection = {};
+  const anchored = {};
+  for (const c of customLines) {
+    const after = CUSTOM_LINE_ANCHOR[c.line_key];
+    if (after) (anchored[after] ||= []).push(c);
+    else (bySection[c.section] ||= []).push(c);
+  }
+  const out = [];
+  let cur = null;
+  const flush = () => {
+    if (cur && bySection[cur]) {
+      for (const c of bySection[cur]) out.push(mkCustom(c));
+      bySection[cur] = null;
+    }
+  };
+  for (const row of BUDGET_STRUCTURE) {
+    if (row.kind === "group" || row.kind === "sub") { flush(); cur = row.label; out.push(row); continue; }
+    if (row.kind === "subtotal" || row.kind === "net" || row.kind === "npm") { flush(); cur = null; out.push(row); continue; }
+    out.push(row);
+    if (row.key && anchored[row.key]) { for (const c of anchored[row.key]) out.push(mkCustom(c)); }
+  }
+  flush();
+  return out;
+}
+
+// Resolve budget + 12 actuals + row total for every structure row (inputs from
+// the DB map; subtotals / net / npm computed live). salesByMonth overrides the
+// auto-linked Total Sales actuals.
+export function computeBudgetRows(linesMap, salesByMonth, showArchived) {
+  const customLines = Object.entries(linesMap || {})
+    .filter(([, v]) => v.is_custom)
+    .map(([k, v]) => ({ line_key: k, label: v.label || k, section: v.section, hidden: v.hidden }));
+  const structure = buildMergedStructure(customLines);
+  const val = {};
+  const get = k => val[k] || { budget: 0, actuals: emptyActuals(), total: 0 };
+  const out = [];
+  for (const row of structure) {
+    if (row.kind === "group" || row.kind === "sub" || row.kind === "spacer") { out.push({ ...row }); continue; }
+
+    if (row.kind === "input") {
+      const stored = (linesMap || {})[row.key] || {};
+      const actuals = { ...emptyActuals(), ...(stored.actuals || {}) };
+      if (row.autoActual && salesByMonth) for (const m of BUDGET_MONTHS) actuals[m] = salesByMonth[m] || 0;
+      const total = BUDGET_MONTHS.reduce((a, m) => a + (Number(actuals[m]) || 0), 0);
+      const r = { budget: Number(stored.monthly_budget) || 0, actuals, total };
+      if (stored.hidden) {
+        if (showArchived) out.push({ ...row, ...r, archived: true });
+        continue;
+      }
+      val[row.key] = r;
+      out.push({ ...row, ...r });
+      continue;
+    }
+
+    if (row.kind === "subtotal") {
+      const memberKeys = [...row.members, ...customLines.filter(c => SECTION_TO_SUBTOTAL[c.section] === row.key && !c.hidden).map(c => c.line_key)];
+      const actuals = emptyActuals();
+      let budget = 0;
+      for (const mk of memberKeys) { budget += get(mk).budget; for (const m of BUDGET_MONTHS) actuals[m] += get(mk).actuals[m]; }
+      const total = BUDGET_MONTHS.reduce((a, m) => a + actuals[m], 0);
+      const r = { budget, actuals, total };
+      val[row.key] = r;
+      out.push({ ...row, ...r });
+      continue;
+    }
+
+    if (row.kind === "net") {
+      const actuals = emptyActuals();
+      let budget = 0;
+      for (const mk of row.income)  { budget += get(mk).budget; for (const m of BUDGET_MONTHS) actuals[m] += get(mk).actuals[m]; }
+      for (const mk of row.deduct)  { budget -= get(mk).budget; for (const m of BUDGET_MONTHS) actuals[m] -= get(mk).actuals[m]; }
+      const total = BUDGET_MONTHS.reduce((a, m) => a + actuals[m], 0);
+      const r = { budget, actuals, total };
+      val[row.key] = r;
+      out.push({ ...row, ...r });
+      continue;
+    }
+
+    if (row.kind === "npm") {
+      const net = get(row.net), base = get(row.base);
+      const pct = {};
+      for (const m of BUDGET_MONTHS) pct[m] = base.actuals[m] ? (net.actuals[m] / base.actuals[m]) * 100 : 0;
+      out.push({ ...row, pct, total: base.total ? (net.total / base.total) * 100 : 0 });
+      continue;
+    }
+  }
+  return out;
+}
+
+export function filterBudgetForStaff(rows, visibility) {
+  const isHeader = r => r.kind === "group" || r.kind === "sub";
+  const out = [];
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i];
+    if (isHeader(r)) {
+      let any = false;
+      for (let j = i + 1; j < rows.length && !isHeader(rows[j]); j++) if (rows[j].key && visibility[rows[j].key]) { any = true; break; }
+      if (any) out.push(r);
+    } else if (r.key && visibility[r.key]) out.push(r);
+  }
+  return out;
+}
