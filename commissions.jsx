@@ -5,6 +5,7 @@ import { CommissionsView } from "./commissions-view.jsx";
 import { isMissingTableError } from "./traffic-board-logic.js";
 import {
   buildCommissionYear,
+  canViewCommissions,
   defaultCommissionMonth,
   ensureJulySeed,
 } from "./commission-logic.js";
@@ -131,7 +132,10 @@ export function CommissionsPage({ currentUser, users, canMarkPaid }) {
     setLoading(false);
   }
 
+  const allowed = canViewCommissions(currentUser);
+
   useEffect(() => {
+    if (!allowed) return undefined;
     let cancelled = false;
     setLoading(true);
     (async () => {
@@ -142,7 +146,7 @@ export function CommissionsPage({ currentUser, users, canMarkPaid }) {
     })();
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [year]);
+  }, [year, allowed]);
 
   const model = useMemo(() => buildCommissionYear({
     year,
@@ -161,12 +165,14 @@ export function CommissionsPage({ currentUser, users, canMarkPaid }) {
     : defaultCommissionMonth(model.months, new Date());
 
   async function refresh() {
+    if (!allowed) return;
     setSaving(true);
     applyPayload(await fetchYear(year));
     setSaving(false);
   }
 
   async function onMarkPaid(payrollDate) {
+    if (!allowed) return;
     setActionError("");
     if (!canMarkPaid || currentUser?.role !== "admin") {
       setActionError("Only an admin can mark a batch paid.");
@@ -242,6 +248,7 @@ export function CommissionsPage({ currentUser, users, canMarkPaid }) {
   }
 
   async function onExclude(deal) {
+    if (!allowed) return;
     setActionError("");
     if (!canMarkPaid) return;
     if (!tablesReady) {
@@ -276,6 +283,7 @@ export function CommissionsPage({ currentUser, users, canMarkPaid }) {
   }
 
   async function onInclude(deal) {
+    if (!allowed) return;
     setActionError("");
     if (!canMarkPaid) return;
     const row = findExclusion(deal);
@@ -301,6 +309,7 @@ export function CommissionsPage({ currentUser, users, canMarkPaid }) {
     await refresh();
   }
 
+  if (!allowed) return null;
   if (loading) return <div style={{ color: "#9a8a7a", padding: 24 }}>Loading commissions…</div>;
 
   const years = Array.from(new Set([2026, now.getFullYear(), year])).sort();
