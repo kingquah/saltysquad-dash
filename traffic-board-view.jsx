@@ -282,7 +282,7 @@ function DealForm({ mode, initial, users, salesOptions, saving, onClose, onSubmi
               </option>
             ))}
           </select>
-          <div style={{ fontSize: 11, color: "#9a8a7a", marginTop: 4 }}>Picking a sale fills empty name, amount, and close date from that row. It does not invent a balance.</div>
+          <div style={{ fontSize: 11, color: "#9a8a7a", marginTop: 4 }}>Picking a sale fills empty name, amount, and close date from that row. It does not invent a balance. Sales totals use this deal. Several Scoreboard rows can point at the same deal.</div>
         </div>
         <div style={{ display: "flex", gap: 10 }}>
           <button type="submit" disabled={saving} style={{ flex: 1, background: "#c4704a", color: "#fff", border: "none", borderRadius: 8, padding: "10px 0", fontSize: 14, fontWeight: 700, cursor: saving ? "not-allowed" : "pointer", opacity: saving ? 0.7 : 1 }}>

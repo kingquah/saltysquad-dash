@@ -139,7 +139,8 @@ export function emptyActuals() {
   return o;
 }
 
-// Same month assignment the Budget tab uses for Total Sales actuals.
+// Sum Scoreboard row amounts by entry date. Company sales totals use
+// salesClosedByDealMonth in sales-source.js instead.
 export function salesClosedByBudgetMonth(entries, year) {
   const m = {};
   for (const e of entries || []) {

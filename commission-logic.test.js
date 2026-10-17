@@ -204,8 +204,16 @@ test("Puteri's Instructure sale counts, and Justin's duplicate does not", () => 
     }),
     monthKey: "2026-07",
   });
-  assert.ok(withDuplicate.npbt > calc.npbt + 7856);
-  assert.equal(withDuplicate.pool, 11916.43);
+  assert.equal(withDuplicate.npbt, calc.npbt);
+  assert.equal(withDuplicate.pool, calc.pool);
+  const withDeal = buildCommissionMonth({
+    ...julyInput({
+      deals: [...julyDeals(), { id: "extra", project_name: "Extra July", entity: "saltyskins_my", amount_myr: 7856.18, deal_close_date: "2026-07-28" }],
+    }),
+    monthKey: "2026-07",
+  });
+  assert.ok(withDeal.npbt > calc.npbt + 7856);
+  assert.equal(withDeal.pool, 11916.43);
   const withoutPuteriDeal = buildCommissionMonth({
     ...julyInput({ salesEntries: julySales().filter(s => s.id !== 5) }),
     monthKey: "2026-07",
@@ -241,8 +249,8 @@ test("a month under RM 100,000 does not open a pool", () => {
     ...julyInput(),
     monthKey: "2026-01",
     linesMap: { total_cogs: { actuals: { Jan: 50000 }, hidden: false } },
-    salesEntries: [{ id: 9, user_id: 2, client_name: "Small", amount: 1000, entry_date: "2026-01-15" }],
-    deals: [],
+    salesEntries: [{ id: 9, user_id: 2, client_name: "Unlinked book", amount: 200000, entry_date: "2026-01-15" }],
+    deals: [{ id: "small", project_name: "Small", entity: "saltyskins_my", amount_myr: 1000, deal_close_date: "2026-01-15" }],
     collections: [],
     costs: [],
     exclusions: [],

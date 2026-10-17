@@ -259,6 +259,23 @@ grant select, insert, update, delete on traffic_costs        to anon, authentica
 grant select, insert, update, delete on traffic_audit        to anon, authenticated, service_role;
 -- >>> TRAFFIC_BOARD_MIGRATION_END
 
+-- >>> SALES_LINK_MIGRATION_START
+-- ── ADDITIVE — Scoreboard Sales Closed → Traffic Board deal ────────────────
+-- Run THIS SECTION in Supabase → SQL Editor on the live project.
+-- Idempotent. Safe to re-run.
+-- Adds one nullable column. Does not update, delete, or rewrite any row.
+-- Does not drop or change traffic_deals.sales_entry_id (the older one-to-one
+-- link). Many Scoreboard rows may point at the same deal.
+-- Requires traffic_deals, so run the Traffic Board section first.
+-- The app does not run this. King runs it by hand.
+
+alter table sales_entries
+  add column if not exists deal_id uuid references traffic_deals(id) on delete set null;
+
+create index if not exists sales_entries_deal_id_idx
+  on sales_entries (deal_id);
+-- >>> SALES_LINK_MIGRATION_END
+
 -- >>> COMMISSIONS_MIGRATION_START
 -- ── NEW TABLES ONLY — Commissions (production migration) ────────────────────
 -- Run THIS SECTION in Supabase → SQL Editor on the live project.

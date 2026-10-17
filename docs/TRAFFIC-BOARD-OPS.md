@@ -4,6 +4,8 @@ This replaces the Excel YES/NO column and the COGS sheet we filled in later. One
 
 The month filter follows the **deal close date**, not the day the bank paid. A job closed in March and paid in April still sits in March. The collection date is stored on the collection line.
 
+Dashboard sales performance, Budget Total Sales, and the Scoreboard “Sales Closed” total all use these deals. A new or edited Scoreboard “Sales Closed” row has to pick a deal. Several Scoreboard rows may point at one deal when the row is only part of the invoice. Older Scoreboard rows with no deal stay on the Scoreboard, marked Unlinked, and are left out of the sales total until someone matches them.
+
 ## Who does what
 
 - **When the bank hits:** a supervisor (King, Wilson, or Puteri) opens the job and records a collection the same day. Put the date the money arrived and the amount that actually arrived. If only part of the invoice came in, enter that part.

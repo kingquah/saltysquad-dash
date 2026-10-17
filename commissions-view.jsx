@@ -112,7 +112,7 @@ export function CommissionsView({
         <div>
           <h2 style={{ margin: 0, fontSize: 22, fontWeight: 800, color: "#3a2a1a" }}>💸 Commissions</h2>
           <p style={{ margin: "4px 0 0", fontSize: 13, color: "#9a8a7a", maxWidth: 760, lineHeight: 1.45 }}>
-            The pool is 10% of that month’s Net Profit Before Tax when NPBT is at least RM 100,000. Half is split evenly across King, Leon, Wilson, and Puteri. Half follows Scoreboard sales closed. Justin is not in the pool. Only profit backed by cash collected is ready to pay. Uncollected deals are held. A deal King excludes stays pending until the cash arrives.
+            The pool is 10% of that month’s Net Profit Before Tax when NPBT is at least RM 100,000. Total Sales inside that profit figure comes from Traffic Board deals. Half of the pool is split evenly across King, Leon, Wilson, and Puteri. The other half still follows Scoreboard sales closed, so an unlinked Scoreboard row can change someone’s share until it is matched to a deal. Justin is not in the pool. Only profit backed by cash collected is ready to pay. Uncollected deals are held. A deal King excludes stays pending until the cash arrives.
           </p>
         </div>
         <label style={{ fontSize: 13, fontWeight: 700, color: "#5a4a3a" }}>

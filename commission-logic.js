@@ -1,7 +1,8 @@
 // Commission pool for King, Leon, Wilson, and Puteri.
 // Justin is not in the pool. Pure functions — the page and the tests both use these.
 
-import { BUDGET_MONTHS, budgetMonthKeyFromDate, computeBudgetRows, salesClosedByBudgetMonth } from "./budget-data.js";
+import { BUDGET_MONTHS, budgetMonthKeyFromDate, computeBudgetRows } from "./budget-data.js";
+import { salesClosedByDealMonth } from "./sales-source.js";
 import { ENTITIES, money } from "./traffic-board-logic.js";
 
 export const QUALIFYING_NPBT = 100000;
@@ -248,8 +249,12 @@ function removeExcludedSales(entries, monthKey, excludedDeals) {
   return removed;
 }
 
-export function npbtForMonth(linesMap, salesEntries, year, monthKey) {
-  const salesByMonth = salesClosedByBudgetMonth(salesEntries, year);
+export function npbtForMonth(linesMap, salesEntries, year, monthKey, deals) {
+  // Total Sales in NPBT is the Traffic Board, same figure as the Budget tab.
+  // `salesEntries` stays in the signature so older callers still compile; the
+  // person-by-person weight below is the part that still reads those rows.
+  void salesEntries;
+  const salesByMonth = salesClosedByDealMonth(deals || [], year);
   const rows = computeBudgetRows(linesMap, salesByMonth, false);
   const net = rows.find(r => r.key === "net_profit");
   const name = BUDGET_MONTHS[Number(String(monthKey).slice(5, 7)) - 1];
@@ -267,7 +272,7 @@ export function buildCommissionMonth({
   exclusions,
   users,
 }) {
-  const npbt = npbtForMonth(linesMap, salesEntries, year, monthKey);
+  const npbt = npbtForMonth(linesMap, salesEntries, year, monthKey, deals);
   const qualified = npbt >= QUALIFYING_NPBT;
   const grossPool = qualified ? money(npbt * POOL_RATE) : 0;
   const collectedBy = sumMap(collections);
