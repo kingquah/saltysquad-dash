@@ -225,6 +225,7 @@ export function TrafficBoardPage({ currentUser, users, canWrite, onDealsChanged 
       new_value: costSnapshot(data),
     }]);
     await refresh();
+    onDealsChanged?.();
     return { errors: [] };
   }
 
@@ -237,6 +238,7 @@ export function TrafficBoardPage({ currentUser, users, canWrite, onDealsChanged 
     if (error) { window.alert(friendlyWriteError(error)); return; }
     await writeAudit(deal, [{ field: "cost", old_value: costSnapshot(row), new_value: null }]);
     await refresh();
+    onDealsChanged?.();
   }
 
   async function onSetLocked(deal, locked) {
@@ -257,6 +259,7 @@ export function TrafficBoardPage({ currentUser, users, canWrite, onDealsChanged 
       new_value: locked ? "locked" : "unlocked",
     }]);
     await refresh();
+    onDealsChanged?.();
     return { errors: [] };
   }
 

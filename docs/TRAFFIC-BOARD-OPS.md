@@ -4,7 +4,11 @@ This replaces the Excel YES/NO column and the COGS sheet we filled in later. One
 
 The month filter follows the **deal close date**, not the day the bank paid. A job closed in March and paid in April still sits in March. The collection date is stored on the collection line.
 
-Dashboard sales performance, Budget Total Sales, and the Scoreboard “Sales Closed” total all use these deals. A new or edited Scoreboard “Sales Closed” row has to pick a deal. Several Scoreboard rows may point at one deal when the row is only part of the invoice. Older Scoreboard rows with no deal stay on the Scoreboard, marked Unlinked, and are left out of the sales total until someone matches them.
+The Scoreboard stays the live tally. Staff key Sales Closed while the paperwork is still pending, and that is the number Dashboard Sales Performance calls Achieved. Nothing on the Scoreboard has to be linked to a deal.
+
+The Traffic Board is the final record. Budget Total Sales and Total COGS use a deal only once it is Final: at least one cost line is saved and a supervisor has locked costs. A deal with no cost line stays Cost pending and is left out of the budget, even if costs were locked. Costs that are entered but not locked stay provisional and are left out too. The month is the deal close date, so the sale and its costs land in the same month.
+
+Dashboard and Scoreboard also show a read-only gap for the month (or the Scoreboard date range): the Scoreboard live total minus every Traffic Board deal, not only the final ones. When the Scoreboard is ahead, that gap is labelled pending paperwork. Nothing is blocked.
 
 ## Who does what
 

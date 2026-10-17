@@ -139,8 +139,9 @@ export function emptyActuals() {
   return o;
 }
 
-// Sum Scoreboard row amounts by entry date. Company sales totals use
-// salesClosedByDealMonth in sales-source.js instead.
+// Sum Scoreboard "Sales Closed" amounts by entry date. Commission NPBT still
+// uses this. Budget Total Sales does not — that comes from final Traffic Board
+// deals (finalisedByMonth in sales-source.js).
 export function salesClosedByBudgetMonth(entries, year) {
   const m = {};
   for (const e of entries || []) {
@@ -196,9 +197,10 @@ export function buildMergedStructure(customLines) {
 }
 
 // Resolve budget + 12 actuals + row total for every structure row (inputs from
-// the DB map; subtotals / net / npm computed live). salesByMonth overrides the
-// auto-linked Total Sales actuals.
-export function computeBudgetRows(linesMap, salesByMonth, showArchived) {
+// the DB map; subtotals / net / npm computed live). salesByMonth overrides
+// Total Sales. cogsByMonth, when passed, overrides Total COGS. Omit it and
+// COGS stays the stored sheet value (commission NPBT depends on that).
+export function computeBudgetRows(linesMap, salesByMonth, showArchived, cogsByMonth) {
   const customLines = Object.entries(linesMap || {})
     .filter(([, v]) => v.is_custom)
     .map(([k, v]) => ({ line_key: k, label: v.label || k, section: v.section, hidden: v.hidden }));
@@ -212,9 +214,20 @@ export function computeBudgetRows(linesMap, salesByMonth, showArchived) {
     if (row.kind === "input") {
       const stored = (linesMap || {})[row.key] || {};
       const actuals = { ...emptyActuals(), ...(stored.actuals || {}) };
-      if (row.autoActual && salesByMonth) for (const m of BUDGET_MONTHS) actuals[m] = salesByMonth[m] || 0;
+      let fromBoard = false;
+      if (row.key === "total_sales" && salesByMonth) {
+        fromBoard = true;
+        for (const m of BUDGET_MONTHS) actuals[m] = salesByMonth[m] || 0;
+      } else if (row.autoActual && salesByMonth) {
+        fromBoard = true;
+        for (const m of BUDGET_MONTHS) actuals[m] = salesByMonth[m] || 0;
+      }
+      if (row.key === "total_cogs" && cogsByMonth) {
+        fromBoard = true;
+        for (const m of BUDGET_MONTHS) actuals[m] = cogsByMonth[m] || 0;
+      }
       const total = BUDGET_MONTHS.reduce((a, m) => a + (Number(actuals[m]) || 0), 0);
-      const r = { budget: Number(stored.monthly_budget) || 0, actuals, total };
+      const r = { budget: Number(stored.monthly_budget) || 0, actuals, total, autoActual: fromBoard };
       if (stored.hidden) {
         if (showArchived) out.push({ ...row, ...r, archived: true });
         continue;

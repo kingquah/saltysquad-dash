@@ -1,23 +1,12 @@
 import { useState, useEffect, useRef, useMemo, Fragment } from "react";
 import { supabase } from "./supabase";
 import { BUDGET_STRUCTURE, BUDGET_MONTHS, BUDGET_INPUT_KEYS, BUDGET_LABELS, BUDGET_ADDABLE_SECTIONS, SECTION_TO_SUBTOTAL, emptyActuals, computeBudgetRows, filterBudgetForStaff } from "./budget-data.js";
+import { dealsInRange, finalisedByMonth, paperworkNote, reconcileSales, salesClosedByDealMonth, sumDealAmounts } from "./sales-source.js";
+import { formatRM } from "./traffic-board-logic.js";
 import { DEFAULT_ROCKS } from "./rocks-seed.js";
 import { TrafficBoardPage, LiveCashIndicator } from "./traffic-board.jsx";
 import { CommissionsPage } from "./commissions.jsx";
 import { checklistMonthEditState } from "./checklist-month-edit.js";
-import { isMissingTableError } from "./traffic-board-logic.js";
-import schemaSql from "./schema.sql?raw";
-import {
-  dealForSalesEntry,
-  dealOptionLabel,
-  isMissingDealLinkColumn,
-  isUnlinkedSalesClosed,
-  mergeAchievedFromDeals,
-  salesClosedByDealMonth,
-  salesLinkMigrationSql,
-  scoreboardSalesRollup,
-  validateSalesEntry,
-} from "./sales-source.js";
 import * as XLSX from "xlsx";
 
 // ── STATIC / CONFIG DATA ──────────────────────────────────────────────────────
@@ -440,10 +429,24 @@ function mapSales(row) {
   };
 }
 
-// Live "Achieved" per month = sum of Traffic Board deals whose close date
-// falls in that month. This OVERRIDES sales_targets.achieved — that stored
-// column is intentionally ignored. Close dates are read as YYYY-MM-DD text
-// so a timezone cannot shove a deal into the previous month.
+// Live "Achieved" per month = sum of Scoreboard `sales_closed` entries whose
+// entry_date falls in that month. This OVERRIDES sales_targets.achieved — that
+// stored column is intentionally ignored. sales_targets has no `year` column,
+// so rows are matched by month name only (as the rest of the app does); entries
+// are filtered to the current calendar year. entry_date is parsed by string
+// split (not `new Date`) to stay timezone-safe.
+function mergeAchievedFromEntries(salesRows, entries) {
+  const year = new Date().getFullYear();
+  const sumByMonthIdx = {}; // monthIdx -> total amount for the current year
+  for (const e of entries) {
+    if (!e.entry_date) continue;
+    const [y, mo] = String(e.entry_date).split("-");
+    if (Number(y) !== year) continue;
+    const idx = Number(mo) - 1;
+    sumByMonthIdx[idx] = (sumByMonthIdx[idx] || 0) + (Number(e.amount) || 0);
+  }
+  return salesRows.map(s => ({ ...s, achieved: sumByMonthIdx[MONTHS.indexOf(s.month)] || 0 }));
+}
 
 // ── HELPERS ───────────────────────────────────────────────────────────────────
 
@@ -495,31 +498,12 @@ function LoadingScreen() {
 
 // ── SCOREBOARD PAGE ───────────────────────────────────────────────────────────
 
-async function fetchPaged(makeQuery) {
-  const pageSize = 1000;
-  let from = 0;
-  const all = [];
-  for (;;) {
-    const { data, error } = await makeQuery().range(from, from + pageSize - 1);
-    if (error) return { data: null, error };
-    all.push(...(data || []));
-    if (!data || data.length < pageSize) break;
-    from += pageSize;
-  }
-  return { data: all, error: null };
-}
-
-function ScoreboardPage({ currentUser, users, isAdmin }) {
+function ScoreboardPage({ currentUser, users, isAdmin, onSalesEntriesChanged, deals = [], dealsError = null }) {
   const now = new Date();
   const todayStr = now.toISOString().slice(0, 10);
   const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
-  const linkSql = salesLinkMigrationSql(schemaSql);
 
   const [entries, setEntries] = useState([]);
-  const [salesLinks, setSalesLinks] = useState([]);
-  const [deals, setDeals] = useState([]);
-  const [dealsProblem, setDealsProblem] = useState("");
-  const [linkReady, setLinkReady] = useState(true);
   const [loadingEntries, setLoadingEntries] = useState(true);
   const [dateFrom, setDateFrom] = useState(monthStart);
   const [dateTo, setDateTo] = useState(todayStr);
@@ -533,11 +517,7 @@ function ScoreboardPage({ currentUser, users, isAdmin }) {
   const [formClient, setFormClient] = useState("");
   const [formAmount, setFormAmount] = useState("");
   const [formDate, setFormDate] = useState(todayStr);
-  const [formDealId, setFormDealId] = useState("");
-  const [formDealQuery, setFormDealQuery] = useState("");
-  const [formError, setFormError] = useState("");
   const [saving, setSaving] = useState(false);
-  const [sqlCopied, setSqlCopied] = useState(false);
 
   const [expandedUsers, setExpandedUsers] = useState({});
 
@@ -566,43 +546,13 @@ function ScoreboardPage({ currentUser, users, isAdmin }) {
 
   async function loadEntries() {
     setLoadingEntries(true);
-    const rangeRes = await fetchPaged(() => supabase
+    const { data, error } = await supabase
       .from("sales_entries")
       .select("*")
       .gte("entry_date", dateFrom)
       .lte("entry_date", dateTo)
-      .order("entry_date", { ascending: false })
-      .order("id", { ascending: false }));
-    let linkRes = await fetchPaged(() => supabase
-      .from("sales_entries")
-      .select("id, user_id, client_name, amount, entry_date, category, deal_id")
-      .eq("category", "sales_closed")
-      .order("entry_date", { ascending: false })
-      .order("id", { ascending: false }));
-    if (linkRes.error && isMissingDealLinkColumn(linkRes.error)) {
-      setLinkReady(false);
-      linkRes = await fetchPaged(() => supabase
-        .from("sales_entries")
-        .select("id, user_id, client_name, amount, entry_date, category")
-        .eq("category", "sales_closed")
-        .order("entry_date", { ascending: false })
-        .order("id", { ascending: false }));
-    } else if (!linkRes.error) {
-      setLinkReady(true);
-    }
-    const dealRes = await fetchPaged(() => supabase
-      .from("traffic_deals")
-      .select("id, project_name, aca_id, amount_myr, deal_close_date, entity, sales_entry_id")
-      .order("deal_close_date", { ascending: false }));
-    if (!rangeRes.error && rangeRes.data) setEntries(rangeRes.data);
-    if (!linkRes.error && linkRes.data) setSalesLinks(linkRes.data);
-    if (dealRes.error) {
-      setDeals([]);
-      setDealsProblem(isMissingTableError(dealRes.error) ? "Traffic Board isn’t set up yet." : "Couldn’t load Traffic Board deals.");
-    } else {
-      setDeals(dealRes.data || []);
-      setDealsProblem("");
-    }
+      .order("entry_date", { ascending: false });
+    if (!error && data) setEntries(data);
     setLoadingEntries(false);
   }
 
@@ -615,42 +565,24 @@ function ScoreboardPage({ currentUser, users, isAdmin }) {
     return u ? u.avatar : "?";
   }
 
-  const rollup = scoreboardSalesRollup(deals, salesLinks, dateFrom, dateTo);
-  const unlinkedEntries = salesLinks.filter(entry => isUnlinkedSalesClosed(entry, deals));
-  const unlinkedInRange = entries.filter(entry => isUnlinkedSalesClosed(entry, deals)).length;
-
   const totals = { "sales_closed": 0, "pipeline": 0, "invoice": 0, "quotation": 0 };
   for (const e of entries) {
-    if (e.category !== "sales_closed" && totals[e.category] !== undefined) totals[e.category] += Number(e.amount) || 0;
+    if (totals[e.category] !== undefined) totals[e.category] += Number(e.amount) || 0;
   }
-  totals.sales_closed = dealsProblem ? 0 : rollup.total;
+  const grandTotal = Object.values(totals).reduce((a, b) => a + b, 0);
 
   const myEntries = entries.filter(e => String(e.user_id) === String(currentUser.id));
 
-  const countsSales = breakdownCat === "all" || breakdownCat === "sales_closed";
   const byUser = {};
   for (const e of entries) {
     if (breakdownCat !== "all" && e.category !== breakdownCat) continue;
     const uid = String(e.user_id);
     if (!byUser[uid]) byUser[uid] = { entries: [], total: 0 };
     byUser[uid].entries.push(e);
-    if (e.category !== "sales_closed") byUser[uid].total += Number(e.amount) || 0;
+    byUser[uid].total += Number(e.amount) || 0;
   }
-  if (countsSales && !dealsProblem) {
-    for (const [uid, amount] of Object.entries(rollup.byUserId)) {
-      if (!amount) continue;
-      if (!byUser[uid]) byUser[uid] = { entries: [], total: 0 };
-      byUser[uid].total += amount;
-    }
-  }
-  const unassignedSales = countsSales && !dealsProblem ? rollup.unassigned : 0;
-  const breakdownTotal = Object.values(byUser).reduce((s, d) => s + d.total, 0) + unassignedSales;
-
-  const dealChoices = deals.filter(deal => {
-    const q = formDealQuery.trim().toLowerCase();
-    if (!q) return true;
-    return `${deal.project_name || ""} ${deal.aca_id || ""} ${deal.deal_close_date || ""}`.toLowerCase().includes(q);
-  }).slice(0, 150);
+  // Team total for "% of team" — relative to the breakdown's selected category.
+  const breakdownTotal = Object.values(byUser).reduce((s, d) => s + d.total, 0);
 
   function openAddForm() {
     setEditingEntry(null);
@@ -658,88 +590,47 @@ function ScoreboardPage({ currentUser, users, isAdmin }) {
     setFormClient("");
     setFormAmount("");
     setFormDate(todayStr);
-    setFormDealId("");
-    setFormDealQuery("");
-    setFormError("");
     setShowForm(true);
   }
   function openEditForm(entry) {
-    const linked = dealForSalesEntry(entry, deals);
     setEditingEntry(entry);
     setFormCategory(CATEGORY_DISPLAY[entry.category] || entry.category);
-    setFormClient(entry.client_name || "");
-    setFormAmount(String(entry.amount ?? ""));
+    setFormClient(entry.client_name);
+    setFormAmount(String(entry.amount));
     setFormDate(entry.entry_date);
-    setFormDealId(linked?.id ? String(linked.id) : "");
-    setFormDealQuery("");
-    setFormError("");
     setShowForm(true);
-  }
-  function onPickDeal(id) {
-    setFormDealId(id);
-    setFormError("");
-    const deal = deals.find(row => String(row.id) === String(id));
-    if (!deal || editingEntry) return;
-    setFormAmount(deal.amount_myr == null ? "" : String(deal.amount_myr));
-    setFormClient(deal.project_name || "");
-    if (deal.deal_close_date) setFormDate(String(deal.deal_close_date).slice(0, 10));
   }
 
   async function handleSubmit(e) {
     e.preventDefault();
-    const category = CATEGORY_MAP[formCategory] || formCategory;
-    const errors = validateSalesEntry({
-      category,
-      clientName: formClient,
-      amount: formAmount,
-      entryDate: formDate,
-      dealId: category === "sales_closed" ? formDealId : null,
-    });
-    if (category === "sales_closed" && !linkReady) {
-      errors.push("Linking isn’t turned on in the database yet. King needs to run the Sales link SQL once.");
-    }
-    if (errors.length) { setFormError(errors[0]); return; }
+    if (!formClient.trim() || !formAmount) return;
     setSaving(true);
-    setFormError("");
     const payload = {
-      category,
+      user_id: currentUser.id,
+      category: CATEGORY_MAP[formCategory] || formCategory,
       client_name: formClient.trim(),
       amount: parseFloat(formAmount),
       entry_date: formDate,
     };
-    if (!editingEntry) payload.user_id = currentUser.id;
-    if (linkReady || category === "sales_closed") payload.deal_id = category === "sales_closed" ? formDealId : null;
-    const result = editingEntry
-      ? await supabase.from("sales_entries").update(payload).eq("id", editingEntry.id)
-      : await supabase.from("sales_entries").insert(payload);
-    setSaving(false);
-    if (result.error) {
-      if (isMissingDealLinkColumn(result.error)) setLinkReady(false);
-      setFormError(isMissingDealLinkColumn(result.error)
-        ? "Linking isn’t turned on in the database yet. King needs to run the Sales link SQL once."
-        : (result.error.message || "Save failed."));
-      return;
+    if (editingEntry) {
+      await supabase.from("sales_entries").update(payload).eq("id", editingEntry.id);
+    } else {
+      await supabase.from("sales_entries").insert(payload);
     }
+    setSaving(false);
     setShowForm(false);
     loadEntries();
+    onSalesEntriesChanged?.();
   }
 
   async function handleDelete(id) {
     if (!confirm("Delete this entry?")) return;
     await supabase.from("sales_entries").delete().eq("id", id);
     loadEntries();
+    onSalesEntriesChanged?.();
   }
 
   const fmtRM = v => `RM ${Number(v).toLocaleString("en-MY", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-
-  function salesLinkNote(entry) {
-    if (entry.category !== "sales_closed") return null;
-    if (isUnlinkedSalesClosed(entry, deals)) {
-      return <div style={{ fontSize: 11, color: "#8a5a12", fontWeight: 700, marginTop: 2 }}>Unlinked — not in the sales total</div>;
-    }
-    const deal = dealForSalesEntry(entry, deals);
-    return <div style={{ fontSize: 11, color: "#1a6630", marginTop: 2 }}>Linked · {deal?.project_name || "Traffic Board deal"}</div>;
-  }
 
   const summaryCards = [
     { label: "Sales Closed",    icon: "💰", key: "sales_closed", color: "#1a6630", bg: "#d4edda" },
@@ -747,6 +638,9 @@ function ScoreboardPage({ currentUser, users, isAdmin }) {
     { label: "Invoices Issued", icon: "🧾", key: "invoice",      color: "#8a4010", bg: "#ffe5cc" },
     { label: "Quotations Sent", icon: "📋", key: "quotation",    color: "#555555", bg: "#e8e8e8" },
   ];
+  const boardInRange = sumDealAmounts(dealsInRange(deals, dateFrom, dateTo));
+  const salesGap = reconcileSales(totals.sales_closed, boardInRange);
+  const trafficUnavailable = !!dealsError && deals.length === 0;
 
   const thStyle = (align) => ({ padding: "10px 16px", textAlign: align || "left", color: "#7a6a5a", fontWeight: 600, fontSize: 12, borderBottom: "1.5px solid #f0ebe4", whiteSpace: "nowrap" });
 
@@ -755,25 +649,8 @@ function ScoreboardPage({ currentUser, users, isAdmin }) {
       {/* Header */}
       <div style={{ marginBottom: 24 }}>
         <h2 style={{ margin: 0, fontSize: 22, fontWeight: 800, color: "#3a2a1a" }}>📊 Sales Activity Tracker</h2>
-        <p style={{ margin: "4px 0 0", fontSize: 13, color: "#9a8a7a" }}>Sales Closed comes from Traffic Board deals closed in this date range. Pipeline, invoices, and quotations are still logged here.</p>
+        <p style={{ margin: "4px 0 0", fontSize: 13, color: "#9a8a7a" }}>Track team sales activities, pipeline, invoices, and quotations.</p>
       </div>
-
-      {!linkReady && isAdmin && (
-        <div style={{ background: "#fff", borderRadius: 14, border: "1.5px solid #f0ebe4", padding: "16px 18px", marginBottom: 18 }}>
-          <div style={{ fontWeight: 800, color: "#3a2a1a" }}>One-time Sales link SQL</div>
-          <p style={{ margin: "6px 0 8px", color: "#7a6a5a", fontSize: 13, lineHeight: 1.5 }}>
-            New Sales Closed rows have to point at a Traffic Board deal. Run this once in Supabase → SQL Editor. It adds an empty column. It does not change any existing row.
-          </p>
-          <pre style={{ background: "#faf7f3", border: "1px solid #ece3da", borderRadius: 8, padding: "12px 14px", fontSize: 11.5, overflowX: "auto", whiteSpace: "pre", color: "#5a4a3a" }}>{linkSql}</pre>
-          <button type="button" onClick={async () => { try { await navigator.clipboard.writeText(linkSql); setSqlCopied(true); } catch { setSqlCopied(false); } }} style={{ background: "#c4704a", color: "#fff", border: "none", borderRadius: 8, padding: "8px 14px", fontWeight: 700, cursor: "pointer" }}>
-            {sqlCopied ? "Copied" : "Copy SQL"}
-          </button>
-        </div>
-      )}
-
-      {dealsProblem && (
-        <div style={{ background: "#fff4e0", color: "#8a5a12", borderRadius: 12, padding: "12px 16px", marginBottom: 16, fontSize: 13 }}>{dealsProblem} Sales Closed is hidden until the deals load.</div>
-      )}
 
       {/* Date Range Filter */}
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 24, flexWrap: "wrap" }}>
@@ -795,11 +672,18 @@ function ScoreboardPage({ currentUser, users, isAdmin }) {
           <div key={card.key} style={{ background: "#fff", borderRadius: 14, padding: "16px 20px", border: "1.5px solid #f0ebe4", boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
             <div style={{ fontSize: 22, marginBottom: 6 }}>{card.icon}</div>
             <div style={{ fontSize: 11, color: "#9a8a7a", fontWeight: 600, marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.5 }}>{card.label}</div>
-            <div style={{ fontSize: 18, fontWeight: 800, color: card.color }}>{card.key === "sales_closed" && dealsProblem ? "—" : fmtRM(totals[card.key])}</div>
-            {card.key === "sales_closed" && !dealsProblem && (
-              <div style={{ fontSize: 11, color: "#9a8a7a", marginTop: 4, lineHeight: 1.35 }}>
-                {rollup.count} deal{rollup.count === 1 ? "" : "s"} closed in this range
-                {unlinkedInRange > 0 ? ` · ${unlinkedInRange} unlinked row${unlinkedInRange === 1 ? "" : "s"} not included` : ""}
+            <div style={{ fontSize: 18, fontWeight: 800, color: card.color }}>{fmtRM(totals[card.key])}</div>
+            {card.key === "sales_closed" && (
+              <div style={{ marginTop: 8, fontSize: 11, color: "#7a6a5a", lineHeight: 1.45, fontWeight: 600 }}>
+                {trafficUnavailable ? "Traffic Board total unavailable." : (
+                  <>
+                    <div>On Traffic Board: {formatRM(boardInRange)}</div>
+                    <div>
+                      {paperworkNote(salesGap.gap)}
+                      {salesGap.gap !== 0 ? `: ${formatRM(Math.abs(salesGap.gap))}` : ""}
+                    </div>
+                  </>
+                )}
               </div>
             )}
           </div>
@@ -867,7 +751,7 @@ function ScoreboardPage({ currentUser, users, isAdmin }) {
                       <td style={{ padding: "10px 16px" }}>
                         <span style={{ background: badge.bg, color: badge.color, padding: "3px 10px", borderRadius: 99, fontSize: 11, fontWeight: 700 }}>{CATEGORY_DISPLAY[e.category] || e.category}</span>
                       </td>
-                      <td style={{ padding: "10px 16px", color: "#3a2a1a" }}>{e.client_name}{salesLinkNote(e)}</td>
+                      <td style={{ padding: "10px 16px", color: "#3a2a1a" }}>{e.client_name}</td>
                       <td style={{ padding: "10px 16px", textAlign: "right", fontWeight: 700, color: "#3a2a1a" }}>{fmtRM(e.amount)}</td>
                       {isAdmin && (
                         <td style={{ padding: "10px 16px", whiteSpace: "nowrap" }}>
@@ -882,22 +766,11 @@ function ScoreboardPage({ currentUser, users, isAdmin }) {
               <tfoot>
                 {(() => {
                   const filtered = entries.filter(e => (filterCategory === "all" || e.category === filterCategory) && (filterUser === "all" || String(e.user_id) === filterUser));
-                  const logged = filtered.reduce((s, e) => s + Number(e.amount || 0), 0);
-                  const includesSales = filterCategory === "all" || filterCategory === "sales_closed";
-                  const salesPart = !includesSales || dealsProblem
-                    ? 0
-                    : (filterUser === "all" ? rollup.total : (rollup.byUserId[filterUser] || 0));
-                  const other = filtered.filter(e => e.category !== "sales_closed").reduce((s, e) => s + Number(e.amount || 0), 0);
-                  const rowWord = filtered.length === 1 ? "row" : "rows";
-                  const label = !includesSales || dealsProblem
-                    ? `Total (${filtered.length} ${filtered.length === 1 ? "entry" : "entries"})`
-                    : filterCategory === "all"
-                      ? `Sales closed from Traffic Board · other activity ${fmtRM(other)} · ${filtered.length} logged ${rowWord}`
-                      : `Sales closed from Traffic Board · ${filtered.length} logged ${rowWord}`;
+                  const total = filtered.reduce((s, e) => s + Number(e.amount || 0), 0);
                   return (
                     <tr style={{ background: "#faf7f3", borderTop: "2px solid #ece3da" }}>
-                      <td style={{ padding: "12px 16px", fontWeight: 800, color: "#3a2a1a" }} colSpan={4}>{label}</td>
-                      <td style={{ padding: "12px 16px", textAlign: "right", fontWeight: 800, color: "#3a2a1a" }}>{fmtRM(includesSales && !dealsProblem ? salesPart : logged)}</td>
+                      <td style={{ padding: "12px 16px", fontWeight: 800, color: "#3a2a1a" }} colSpan={4}>Total ({filtered.length} {filtered.length === 1 ? "entry" : "entries"})</td>
+                      <td style={{ padding: "12px 16px", textAlign: "right", fontWeight: 800, color: "#3a2a1a" }}>{fmtRM(total)}</td>
                       {isAdmin && <td />}
                     </tr>
                   );
@@ -940,7 +813,7 @@ function ScoreboardPage({ currentUser, users, isAdmin }) {
                       <td style={{ padding: "10px 16px" }}>
                         <span style={{ background: badge.bg, color: badge.color, padding: "3px 10px", borderRadius: 99, fontSize: 11, fontWeight: 700 }}>{CATEGORY_DISPLAY[e.category] || e.category}</span>
                       </td>
-                      <td style={{ padding: "10px 16px", color: "#3a2a1a" }}>{e.client_name}{salesLinkNote(e)}</td>
+                      <td style={{ padding: "10px 16px", color: "#3a2a1a" }}>{e.client_name}</td>
                       <td style={{ padding: "10px 16px", textAlign: "right", fontWeight: 700, color: "#3a2a1a" }}>{fmtRM(e.amount)}</td>
                       <td style={{ padding: "10px 16px", whiteSpace: "nowrap" }}>
                         <button onClick={() => openEditForm(e)} style={{ background: "none", border: "none", cursor: "pointer", color: "#c4704a", fontSize: 12, marginRight: 8 }}>Edit</button>
@@ -1011,16 +884,13 @@ function ScoreboardPage({ currentUser, users, isAdmin }) {
                               <td style={{ padding: "8px 12px" }}>
                                 <span style={{ background: badge.bg, color: badge.color, padding: "2px 8px", borderRadius: 99, fontSize: 11, fontWeight: 700 }}>{CATEGORY_DISPLAY[e.category] || e.category}</span>
                               </td>
-                              <td style={{ padding: "8px 12px", color: "#3a2a1a" }}>{e.client_name}{salesLinkNote(e)}</td>
+                              <td style={{ padding: "8px 12px", color: "#3a2a1a" }}>{e.client_name}</td>
                               <td style={{ padding: "8px 12px", textAlign: "right", fontWeight: 700, color: "#3a2a1a" }}>{fmtRM(e.amount)}</td>
                             </tr>
                           );
                         })}
                         <tr>
-                          <td colSpan={3} style={{ padding: "10px 12px", fontWeight: 700, color: "#7a6a5a", fontSize: 13 }}>
-                            {countsSales ? "Sales total" : "Total"}
-                            {countsSales && <div style={{ fontWeight: 500, fontSize: 11, color: "#9a8a7a" }}>Sales closed counts each Traffic Board deal once. Unlinked rows stay listed and are not added again.</div>}
-                          </td>
+                          <td colSpan={3} style={{ padding: "10px 12px", fontWeight: 700, color: "#7a6a5a", fontSize: 13 }}>Total</td>
                           <td style={{ padding: "10px 12px", textAlign: "right", fontWeight: 800, color: "#c4704a", fontSize: 14 }}>{fmtRM(data.total)}</td>
                         </tr>
                       </tbody>
@@ -1030,23 +900,7 @@ function ScoreboardPage({ currentUser, users, isAdmin }) {
               </div>
             );
           })}
-          {unassignedSales > 0 && (
-            <div style={{ borderBottom: "1px solid #f0ebe4", padding: "14px 20px" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "baseline" }}>
-                <div>
-                  <div style={{ fontWeight: 700, fontSize: 14, color: "#3a2a1a" }}>Not on the Scoreboard</div>
-                  <div style={{ fontSize: 12, color: "#9a8a7a" }}>Traffic Board deals in this range with no linked Sales Closed row. They still count.</div>
-                </div>
-                <div style={{ fontWeight: 800, fontSize: 15, color: "#c4704a" }}>{fmtRM(unassignedSales)}</div>
-              </div>
-              <div style={{ marginTop: 8, fontSize: 12, color: "#5a4a3a", lineHeight: 1.5 }}>
-                {rollup.unassignedDeals.map(deal => (
-                  <div key={deal.id}>{deal.deal_close_date || "no date"} · {deal.aca_id ? `${deal.aca_id} · ` : ""}{deal.project_name} · {fmtRM(deal.amount)}</div>
-                ))}
-              </div>
-            </div>
-          )}
-          {Object.keys(byUser).length === 0 && unassignedSales === 0 && (
+          {Object.keys(byUser).length === 0 && (
             <div style={{ padding: "32px 20px", textAlign: "center", color: "#b0a09a", fontSize: 14 }}>
               No {breakdownCat === "all" ? "" : (CATEGORY_DISPLAY[breakdownCat] || breakdownCat) + " "}entries for this period.
             </div>
@@ -1054,79 +908,19 @@ function ScoreboardPage({ currentUser, users, isAdmin }) {
         </div>
       )}
 
-      {isAdmin && (
-        <div style={{ background: "#fff", borderRadius: 14, border: "1.5px solid #f0ebe4", overflow: "hidden", marginBottom: 32 }}>
-          <div style={{ padding: "16px 20px", borderBottom: "1.5px solid #f0ebe4" }}>
-            <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: "#3a2a1a" }}>Unlinked Sales Closed</h3>
-            <p style={{ margin: "4px 0 0", fontSize: 12, color: "#9a8a7a", lineHeight: 1.45 }}>
-              {unlinkedEntries.length === 0
-                ? "Every Sales Closed row points at a Traffic Board deal."
-                : `${unlinkedEntries.length} older ${unlinkedEntries.length === 1 ? "row is" : "rows are"} still here and unchanged. They are not in the sales total. Match one by editing it and picking the deal, or add the missing deal on the Traffic Board first.`}
-            </p>
-          </div>
-          {unlinkedEntries.length > 0 && (
-            <div style={{ overflowX: "auto", maxHeight: 360 }}>
-              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-                <thead>
-                  <tr style={{ background: "#faf7f3" }}>
-                    <th style={thStyle()}>Date</th>
-                    <th style={thStyle()}>Staff</th>
-                    <th style={thStyle()}>Client</th>
-                    <th style={thStyle("right")}>Amount (RM)</th>
-                    <th style={thStyle()}></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {unlinkedEntries.map(entry => (
-                    <tr key={entry.id} style={{ borderTop: "1px solid #f5f0ec" }}>
-                      <td style={{ padding: "10px 16px", color: "#5a4a3a", whiteSpace: "nowrap" }}>{entry.entry_date}</td>
-                      <td style={{ padding: "10px 16px", color: "#3a2a1a" }}>{getUserName(entry.user_id)}</td>
-                      <td style={{ padding: "10px 16px", color: "#3a2a1a" }}>{entry.client_name}</td>
-                      <td style={{ padding: "10px 16px", textAlign: "right", fontWeight: 700 }}>{fmtRM(entry.amount)}</td>
-                      <td style={{ padding: "10px 16px" }}>
-                        <button onClick={() => openEditForm(entry)} style={{ background: "none", border: "none", cursor: "pointer", color: "#c4704a", fontSize: 12, fontWeight: 700 }}>Match</button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-      )}
-
       {/* Add / Edit Modal */}
       {showForm && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(58,42,26,0.4)", display: "flex", alignItems: "flex-start", justifyContent: "center", zIndex: 1000, overflowY: "auto", padding: "24px 12px 80px" }}>
-          <div style={{ background: "#fff", borderRadius: 16, padding: 28, width: "100%", maxWidth: 520, boxShadow: "0 8px 40px rgba(58,42,26,0.2)" }}>
+        <div style={{ position: "fixed", inset: 0, background: "rgba(58,42,26,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}>
+          <div style={{ background: "#fff", borderRadius: 16, padding: 28, width: "100%", maxWidth: 420, boxShadow: "0 8px 40px rgba(58,42,26,0.2)" }}>
             <h3 style={{ margin: "0 0 20px", fontSize: 17, fontWeight: 800, color: "#3a2a1a" }}>{editingEntry ? "Edit Entry" : "Add Entry"}</h3>
             <form onSubmit={handleSubmit}>
-              {formError && (
-                <div style={{ background: "#fde8e8", color: "#a32020", borderRadius: 8, padding: "8px 12px", fontSize: 13, marginBottom: 12 }}>{formError}</div>
-              )}
               <div style={{ marginBottom: 14 }}>
                 <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#5a4a3a", marginBottom: 5 }}>Category</label>
-                <select value={formCategory} onChange={e => { setFormCategory(e.target.value); setFormError(""); }} required
+                <select value={formCategory} onChange={e => setFormCategory(e.target.value)} required
                   style={{ width: "100%", padding: "9px 12px", borderRadius: 8, border: "1.5px solid #e8ddd5", fontSize: 13, color: "#3a2a1a", background: "#fff", boxSizing: "border-box" }}>
                   {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
                 </select>
               </div>
-              {formCategory === "Sales Closed" && (
-                <div style={{ marginBottom: 14 }}>
-                  <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#5a4a3a", marginBottom: 5 }}>Traffic Board deal</label>
-                  <input value={formDealQuery} onChange={e => setFormDealQuery(e.target.value)} placeholder="Search project, ACA ID, or date"
-                    style={{ width: "100%", padding: "9px 12px", borderRadius: 8, border: "1.5px solid #e8ddd5", fontSize: 13, color: "#3a2a1a", boxSizing: "border-box", marginBottom: 8 }} />
-                  <select value={formDealId} onChange={e => onPickDeal(e.target.value)} required
-                    style={{ width: "100%", padding: "9px 12px", borderRadius: 8, border: "1.5px solid #e8ddd5", fontSize: 13, color: "#3a2a1a", background: "#fff", boxSizing: "border-box" }}>
-                    <option value="">Pick a deal</option>
-                    {formDealId && !dealChoices.some(deal => String(deal.id) === String(formDealId)) && (
-                      <option value={formDealId}>{dealOptionLabel(deals.find(deal => String(deal.id) === String(formDealId)) || { id: formDealId, project_name: "Linked deal" })}</option>
-                    )}
-                    {dealChoices.map(deal => <option key={deal.id} value={deal.id}>{dealOptionLabel(deal)}</option>)}
-                  </select>
-                  <div style={{ fontSize: 11, color: "#9a8a7a", marginTop: 4, lineHeight: 1.4 }}>Required. Several rows can point at one deal. A new row takes the deal’s amount, client, and close date. An existing row keeps the amount already saved. Sales totals count the deal once.</div>
-                </div>
-              )}
               <div style={{ marginBottom: 14 }}>
                 <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#5a4a3a", marginBottom: 5 }}>Client Name</label>
                 <input value={formClient} onChange={e => setFormClient(e.target.value)} required placeholder="e.g. Acme Corp"
@@ -1205,8 +999,10 @@ export default function App() {
   const [users, setUsers] = useState([]);
   const [leaveRequests, setLeaveRequests] = useState([]);
   const [sales, setSales] = useState([]);
+  const [salesEntries, setSalesEntries] = useState([]);
   const [trafficDeals, setTrafficDeals] = useState([]);
-  const [trafficDealsError, setTrafficDealsError] = useState("");
+  const [trafficCosts, setTrafficCosts] = useState([]);
+  const [trafficDealsError, setTrafficDealsError] = useState(null);
   const [checklists, setChecklists] = useState({});
   const [docModal, setDocModal] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -1214,26 +1010,27 @@ export default function App() {
   useEffect(() => {
     let cancelled = false;
     async function loadData() {
-      const [usersRes, leaveRes, salesRes, dealsRes, checklistRes] = await Promise.all([
+      const [usersRes, leaveRes, salesRes, salesEntriesRes, checklistRes, dealsRes, costsRes] = await Promise.all([
         supabase.from("users").select(USER_PUBLIC_COLUMNS),
         supabase.from("leave_requests").select("*"),
         supabase.from("sales_targets").select("*"),
-        supabase.from("traffic_deals").select("id, amount_myr, deal_close_date"),
+        supabase.from("sales_entries").select("amount, entry_date").eq("category", "sales_closed"),
         supabase.from("checklist_submissions").select("*"),
+        supabase.from("traffic_deals").select("id, amount_myr, deal_close_date, costs_locked"),
+        supabase.from("traffic_costs").select("deal_id, amount"),
       ]);
       if (cancelled) return;
 
       if (usersRes.data) setUsers(usersRes.data.map(mapUser));
       if (leaveRes.data) setLeaveRequests(leaveRes.data.map(mapLeave));
       if (salesRes.data) setSales(salesRes.data.map(mapSales));
-      if (dealsRes.error) {
-        setTrafficDeals([]);
-        setTrafficDealsError(isMissingTableError(dealsRes.error)
-          ? "Traffic Board isn’t set up yet, so sales totals are hidden."
-          : "Couldn’t load Traffic Board deals, so sales totals are hidden.");
+      if (salesEntriesRes.data) setSalesEntries(salesEntriesRes.data);
+      if (dealsRes.error || costsRes.error) {
+        setTrafficDealsError(dealsRes.error || costsRes.error);
       } else {
+        setTrafficDealsError(null);
         setTrafficDeals(dealsRes.data || []);
-        setTrafficDealsError("");
+        setTrafficCosts(costsRes.data || []);
       }
 
       console.log("[loadData] checklist_submissions — rows:", checklistRes.data?.length, "error:", checklistRes.error);
@@ -1262,23 +1059,36 @@ export default function App() {
   const isAdmin = currentUser.role === "admin" || currentUser.role === "supervisor";
   const isSuperAdmin = currentUser.role === "admin"; // founder only
 
-  // Dashboard sales performance reads "Achieved" from Traffic Board deals.
-  // A failed refresh keeps the deals already loaded. Totals are hidden only
-  // when there is nothing to add up.
-  const salesBlocked = !!trafficDealsError && trafficDeals.length === 0;
-  const salesLive = salesBlocked ? sales.map(row => ({ ...row, achieved: 0 })) : mergeAchievedFromDeals(sales, trafficDeals);
+  // Dashboard + Sales tab read "Achieved" live from Scoreboard sales_closed entries.
+  const salesLive = mergeAchievedFromEntries(sales, salesEntries);
 
+  // Re-fetch the sales_closed totals so Dashboard/Sales stay in sync after the
+  // Scoreboard adds, edits, or deletes an entry — no page reload needed.
+  async function refreshSalesEntries() {
+    const { data } = await supabase
+      .from("sales_entries")
+      .select("amount, entry_date")
+      .eq("category", "sales_closed");
+    if (data) setSalesEntries(data);
+  }
+
+  // Keep Dashboard, Scoreboard reconciliation, and Budget in step with the
+  // Traffic Board. A failed refresh leaves the last good lists in place.
   async function refreshTrafficDeals() {
-    const { data, error } = await supabase.from("traffic_deals").select("id, amount_myr, deal_close_date");
-    if (error) {
-      setTrafficDealsError(isMissingTableError(error)
-        ? "Traffic Board isn’t set up yet, so sales totals are hidden."
-        : "Couldn’t load Traffic Board deals, so sales totals are hidden.");
+    const [dealsRes, costsRes] = await Promise.all([
+      supabase.from("traffic_deals").select("id, amount_myr, deal_close_date, costs_locked"),
+      supabase.from("traffic_costs").select("deal_id, amount"),
+    ]);
+    if (dealsRes.error || costsRes.error) {
+      setTrafficDealsError(dealsRes.error || costsRes.error);
       return;
     }
-    setTrafficDeals(data || []);
-    setTrafficDealsError("");
+    setTrafficDealsError(null);
+    setTrafficDeals(dealsRes.data || []);
+    setTrafficCosts(costsRes.data || []);
   }
+
+  const trafficBlocked = !!trafficDealsError && trafficDeals.length === 0;
 
   async function handleLeaveAction(id, action) {
     const req = leaveRequests.find(l => l.id === id);
@@ -1342,13 +1152,13 @@ export default function App() {
 
       {/* PAGE CONTENT */}
       <main className="main-content" style={{ flex: 1, padding: "28px 32px", maxWidth: page === "traffic" || page === "commissions" ? 1440 : 1200, width: "100%", margin: "0 auto", ...(page === "traffic" || page === "commissions" ? { boxSizing: "border-box", minWidth: 0 } : {}) }}>
-        {page === "dashboard" && <DashboardPage currentUser={currentUser} users={users} leaveRequests={leaveRequests} checklists={checklists} sales={salesLive} salesSourceError={salesBlocked ? trafficDealsError : ""} setSales={setSales} isAdmin={isAdmin} setPage={setPage} onLeaveAction={handleLeaveAction} />}
+        {page === "dashboard" && <DashboardPage currentUser={currentUser} users={users} leaveRequests={leaveRequests} checklists={checklists} sales={salesLive} setSales={setSales} isAdmin={isAdmin} setPage={setPage} onLeaveAction={handleLeaveAction} trafficDeals={trafficDeals} trafficBlocked={trafficBlocked} />}
         {page === "leave" && <LeavePage currentUser={currentUser} users={users} setUsers={setUsers} leaveRequests={leaveRequests} setLeaveRequests={setLeaveRequests} isAdmin={isAdmin} onLeaveAction={handleLeaveAction} />}
 
         {page === "checklist" && <ChecklistPage currentUser={currentUser} users={users} checklists={checklists} setChecklists={setChecklists} isAdmin={isAdmin} />}
-        {page === "budget" && isAdmin && <BudgetPage currentUser={currentUser} trafficDeals={trafficDeals} trafficDealsError={salesBlocked ? trafficDealsError : ""} isEditor={isAdmin} />}
+        {page === "budget" && isAdmin && <BudgetPage currentUser={currentUser} trafficDeals={trafficDeals} trafficCosts={trafficCosts} trafficBlocked={trafficBlocked} isEditor={isAdmin} />}
         {page === "docs" && <DocsPage docModal={docModal} setDocModal={setDocModal} />}
-        {page === "scoreboard" && <ScoreboardPage currentUser={currentUser} users={users} isAdmin={isAdmin} />}
+        {page === "scoreboard" && <ScoreboardPage currentUser={currentUser} users={users} isAdmin={isAdmin} onSalesEntriesChanged={refreshSalesEntries} deals={trafficDeals} dealsError={trafficDealsError} />}
         {page === "rocks" && <RocksPage currentUser={currentUser} users={users} isAdmin={isAdmin} />}
         {page === "traffic" && <TrafficBoardPage currentUser={currentUser} users={users} canWrite={isAdmin} onDealsChanged={refreshTrafficDeals} />}
         {page === "commissions" && <CommissionsPage currentUser={currentUser} users={users} canMarkPaid={isSuperAdmin} />}
@@ -1888,7 +1698,7 @@ function RocksPage({ currentUser, isAdmin }) {
   );
 }
 
-function DashboardPage({ currentUser, users, leaveRequests, checklists, sales, salesSourceError, setSales, isAdmin, setPage, onLeaveAction }) {
+function DashboardPage({ currentUser, users, leaveRequests, checklists, sales, setSales, isAdmin, setPage, onLeaveAction, trafficDeals = [], trafficBlocked = false }) {
   const now = new Date();
   const currentYear = now.getFullYear();
   const currentMonthIdx = now.getMonth();
@@ -1967,8 +1777,7 @@ function DashboardPage({ currentUser, users, leaveRequests, checklists, sales, s
     const pctVal   = target > 0 && achieved > 0 ? Math.round((achieved / target) * 100) : 0;
     const hit      = achieved >= target && achieved > 0;
     let statusIcon, statusLabel, statusColor;
-    if (salesSourceError) { statusIcon = "—"; statusLabel = "Unavailable"; statusColor = "#b0a09a"; }
-    else if (isFuture)     { statusIcon = "⏳"; statusLabel = "Upcoming";    statusColor = "#b0a09a"; }
+    if (isFuture)     { statusIcon = "⏳"; statusLabel = "Upcoming";    statusColor = "#b0a09a"; }
     else if (isCurr)  { statusIcon = "🔄"; statusLabel = "In Progress"; statusColor = "#3498db"; }
     else if (hit)     { statusIcon = "✅"; statusLabel = "Hit";         statusColor = "#27ae60"; }
     else              { statusIcon = "❌"; statusLabel = "Missed";      statusColor = "#e74c3c"; }
@@ -1979,6 +1788,23 @@ function DashboardPage({ currentUser, users, leaveRequests, checklists, sales, s
   const totalAchieved = allMonths.reduce((sum, r) => sum + r.achieved, 0);
   const totalPct      = totalTarget > 0 && totalAchieved > 0 ? Math.round((totalAchieved / totalTarget) * 100) : 0;
   const totalColor    = totalPct >= 90 ? "#27ae60" : totalPct >= 50 ? "#f39c12" : "#e74c3c";
+
+  // Achieved stays the Scoreboard live tally. Traffic Board is every recorded
+  // deal (not only final ones). The gap is read-only.
+  const boardByMonth = salesClosedByDealMonth(trafficDeals, currentYear);
+  const currentBoard = boardByMonth[currentMonthName] || 0;
+  const currentGap = reconcileSales(currentAchieved, currentBoard);
+  const ytdBoard = MONTHS.slice(0, currentMonthIdx + 1).reduce((sum, m) => sum + (boardByMonth[m] || 0), 0);
+  const ytdGap = reconcileSales(ytdAchieved, ytdBoard);
+  const countedMonths = allMonths.filter(r => !r.isFuture);
+  const totalBoard = countedMonths.reduce((sum, r) => sum + (boardByMonth[r.m] || 0), 0);
+  const totalLive = countedMonths.reduce((sum, r) => sum + r.achieved, 0);
+  const totalGap = reconcileSales(totalLive, totalBoard);
+
+  function gapText(gap) {
+    if (gap === 0) return paperworkNote(0);
+    return `${paperworkNote(gap)}: ${formatRM(Math.abs(gap))}`;
+  }
 
   const SmallCard = ({ title, children, accent, onClick }) => (
     <div onClick={onClick} style={{ background: "#fff", borderRadius: 16, padding: "22px 24px", boxShadow: "0 2px 12px rgba(0,0,0,0.06)", borderLeft: `4px solid ${accent}`, cursor: onClick ? "pointer" : "default", transition: "transform 0.15s, box-shadow 0.15s" }}
@@ -2003,12 +1829,6 @@ function DashboardPage({ currentUser, users, leaveRequests, checklists, sales, s
 
       <LiveCashIndicator onOpen={() => setPage("traffic")} />
 
-      {salesSourceError && (
-        <div style={{ background: "#fff4e0", color: "#8a5a12", borderRadius: 12, padding: "12px 16px", marginBottom: 16, fontSize: 13 }}>
-          {salesSourceError}
-        </div>
-      )}
-
       {/* ══════════════════════════════════════════════════
           HERO: SALES SECTION
       ══════════════════════════════════════════════════ */}
@@ -2027,7 +1847,9 @@ function DashboardPage({ currentUser, users, leaveRequests, checklists, sales, s
               <div style={{ fontSize: 22, fontWeight: 700, color: "#3a2a1a", fontFamily: SF_PRO }}>
                 {currentMonthName} {currentYear}
               </div>
-              <div style={{ fontSize: 12, color: "#9a8a7a", marginTop: 4 }}>Achieved is the Traffic Board total for deals closed this month.</div>
+              <div style={{ marginTop: 6, fontSize: 12, color: "#9a8a7a" }}>
+                Achieved is the Scoreboard live tally.
+              </div>
               {hitTarget && (
                 <div style={{ marginTop: 8, fontSize: 14, fontWeight: 700, color: "#27ae60" }}>
                   🎯 Target Hit! Congratulations!
@@ -2050,7 +1872,7 @@ function DashboardPage({ currentUser, users, leaveRequests, checklists, sales, s
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 14, marginBottom: 22 }}>
             {[
               { label: "Target", value: `RM ${monthTarget.toLocaleString()}`, color: "#3a2a1a" },
-              { label: "Achieved", value: salesSourceError ? "—" : `RM ${currentAchieved.toLocaleString()}`, color: salesColor },
+              { label: "Achieved", value: `RM ${currentAchieved.toLocaleString()}`, color: salesColor },
               { label: "Remaining", value: currentRemaining > 0 ? `RM ${currentRemaining.toLocaleString()}` : "None 🎉", color: currentRemaining > 0 ? "#e74c3c" : "#27ae60" },
             ].map(stat => (
               <div key={stat.label} style={{ background: "#faf7f3", borderRadius: 12, padding: "14px 16px" }}>
@@ -2070,6 +1892,15 @@ function DashboardPage({ currentUser, users, leaveRequests, checklists, sales, s
               <div style={{ width: `${currentPct}%`, height: "100%", background: salesColor, borderRadius: 99, transition: "width 0.6s ease" }} />
             </div>
           </div>
+
+          <div style={{ marginTop: 16, background: "#faf7f3", borderRadius: 12, padding: "12px 14px", fontSize: 13, color: "#5a4a3a", lineHeight: 1.5 }}>
+            {trafficBlocked ? "Traffic Board total is unavailable right now. Achieved above is still the Scoreboard live tally." : (
+              <>
+                <div>On Traffic Board: <strong style={{ color: "#3a2a1a" }}>{formatRM(currentBoard)}</strong></div>
+                <div>{gapText(currentGap.gap)}</div>
+              </>
+            )}
+          </div>
         </div>
 
         {/* B) Year-to-Date Summary */}
@@ -2080,7 +1911,7 @@ function DashboardPage({ currentUser, users, leaveRequests, checklists, sales, s
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 16, marginBottom: 16 }}>
             {[
               { label: "Total Target",   value: `RM ${ytdTarget.toLocaleString()}`,   color: "#3a2a1a" },
-              { label: "Total Achieved", value: salesSourceError ? "—" : `RM ${ytdAchieved.toLocaleString()}`, color: ytdColor },
+              { label: "Total Achieved", value: `RM ${ytdAchieved.toLocaleString()}`, color: ytdColor },
               { label: "Overall %",      value: `${ytdPct}%`,                          color: ytdColor },
               { label: "Months Hit",     value: `${ytdHit} hit`,                       color: "#27ae60",
                 sub: ytdMissed > 0 ? `${ytdMissed} missed` : null },
@@ -2095,6 +1926,12 @@ function DashboardPage({ currentUser, users, leaveRequests, checklists, sales, s
           <div style={{ background: "#ede8e3", borderRadius: 99, height: 8, overflow: "hidden" }}>
             <div style={{ width: `${ytdPct}%`, height: "100%", background: ytdColor, borderRadius: 99, transition: "width 0.6s ease" }} />
           </div>
+          {!trafficBlocked && (
+            <div style={{ marginTop: 12, fontSize: 12, color: "#7a6a5a", lineHeight: 1.5 }}>
+              On Traffic Board: <strong style={{ color: "#3a2a1a" }}>{formatRM(ytdBoard)}</strong>
+              {" · "}{gapText(ytdGap.gap)}
+            </div>
+          )}
         </div>
 
         {/* C) Monthly Breakdown Table */}
@@ -2103,11 +1940,11 @@ function DashboardPage({ currentUser, users, leaveRequests, checklists, sales, s
             Monthly Breakdown — {currentYear}
           </div>
           <div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, minWidth: 480 }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, minWidth: 760 }}>
               <thead>
                 <tr style={{ borderBottom: "2px solid #f0ebe4" }}>
-                  {["Month", "Target", "Achieved", "%", "Status"].map((h, i) => (
-                    <th key={h} style={{ textAlign: i === 0 ? "left" : i === 4 ? "center" : "right", padding: "8px 12px", color: "#9a8a7a", fontWeight: 700, fontSize: 11, textTransform: "uppercase", letterSpacing: 0.5, fontFamily: SF_PRO }}>
+                  {["Month", "Target", "Achieved", "Traffic Board", "Difference", "%", "Status"].map((h, i) => (
+                    <th key={h} style={{ textAlign: i === 0 ? "left" : i === 6 ? "center" : "right", padding: "8px 12px", color: "#9a8a7a", fontWeight: 700, fontSize: 11, textTransform: "uppercase", letterSpacing: 0.5, fontFamily: SF_PRO }}>
                       {h}
                     </th>
                   ))}
@@ -2139,7 +1976,13 @@ function DashboardPage({ currentUser, users, leaveRequests, checklists, sales, s
                       )}
                     </td>
                     <td style={{ padding: "11px 12px", textAlign: "right", fontWeight: r.achieved > 0 ? 600 : 400, color: r.isFuture ? "#b0a09a" : r.hit ? "#27ae60" : r.achieved > 0 ? "#e74c3c" : "#b0a09a" }}>
-                      {r.isFuture || salesSourceError ? "—" : `RM ${r.achieved.toLocaleString()}`}
+                      {r.isFuture ? "—" : `RM ${r.achieved.toLocaleString()}`}
+                    </td>
+                    <td style={{ padding: "11px 12px", textAlign: "right", color: "#5a4a3a" }}>
+                      {r.isFuture || trafficBlocked ? "—" : formatRM(boardByMonth[r.m] || 0)}
+                    </td>
+                    <td style={{ padding: "11px 12px", textAlign: "right", color: "#7a6a5a", fontSize: 12 }} title={r.isFuture || trafficBlocked ? "" : paperworkNote(reconcileSales(r.achieved, boardByMonth[r.m] || 0).gap)}>
+                      {r.isFuture || trafficBlocked ? "—" : formatRM(reconcileSales(r.achieved, boardByMonth[r.m] || 0).gap)}
                     </td>
                     <td style={{ padding: "11px 12px", textAlign: "right", fontWeight: 700, color: r.isFuture ? "#b0a09a" : r.pctVal >= 90 ? "#27ae60" : r.pctVal >= 50 ? "#f39c12" : r.pctVal > 0 ? "#e74c3c" : "#b0a09a" }}>
                       {r.isFuture || r.pctVal === 0 ? "—" : `${r.pctVal}%`}
@@ -2153,12 +1996,17 @@ function DashboardPage({ currentUser, users, leaveRequests, checklists, sales, s
                 <tr style={{ borderTop: "2px solid #f0ebe4", background: "#faf7f3" }}>
                   <td style={{ padding: "12px 12px", fontWeight: 700, color: "#3a2a1a", fontFamily: SF_PRO }}>TOTAL</td>
                   <td style={{ padding: "12px 12px", textAlign: "right", fontWeight: 700, color: "#3a2a1a" }}>RM {totalTarget.toLocaleString()}</td>
-                  <td style={{ padding: "12px 12px", textAlign: "right", fontWeight: 700, color: totalColor }}>{salesSourceError ? "—" : `RM ${totalAchieved.toLocaleString()}`}</td>
+                  <td style={{ padding: "12px 12px", textAlign: "right", fontWeight: 700, color: totalColor }}>RM {totalAchieved.toLocaleString()}</td>
+                  <td style={{ padding: "12px 12px", textAlign: "right", fontWeight: 700, color: "#3a2a1a" }}>{trafficBlocked ? "—" : formatRM(totalBoard)}</td>
+                  <td style={{ padding: "12px 12px", textAlign: "right", fontWeight: 700, color: "#5a4a3a", fontSize: 12 }} title={trafficBlocked ? "" : paperworkNote(totalGap.gap)}>{trafficBlocked ? "—" : formatRM(totalGap.gap)}</td>
                   <td style={{ padding: "12px 12px", textAlign: "right", fontWeight: 700, color: totalColor }}>{totalPct > 0 ? `${totalPct}%` : "—"}</td>
                   <td />
                 </tr>
               </tbody>
             </table>
+          </div>
+          <div style={{ marginTop: 10, fontSize: 12, color: "#9a8a7a", lineHeight: 1.5 }}>
+            Achieved is the Scoreboard live tally. Traffic Board is every deal recorded that month. A positive difference is pending paperwork (on the Scoreboard, not yet on the Traffic Board).
           </div>
         </div>
       </div>
@@ -3150,7 +2998,7 @@ function SalesPage({ sales, setSales, isAdmin }) {
                 <>
                   <div style={{ flex: 1, display: "grid", gridTemplateColumns: "1fr", gap: 10 }}>
                     <div><label style={{ fontSize: 11, color: "#9a8a7a" }}>Target (RM)</label><input type="number" value={editVals.target} onChange={e => setEditVals({...editVals, target: e.target.value})} style={{ ...inputStyle, padding: "6px 10px" }} /></div>
-                    <div style={{ fontSize: 11, color: "#9a8a7a" }}>Achieved is calculated automatically from Traffic Board deals closed in that month.</div>
+                    <div style={{ fontSize: 11, color: "#9a8a7a" }}>Achieved is calculated automatically from Scoreboard "Sales Closed" entries.</div>
                   </div>
                   <button onClick={() => saveEdit(s.month)} style={{ background: "#c4704a", color: "#fff", border: "none", borderRadius: 8, padding: "7px 14px", cursor: "pointer", fontSize: 13 }}>Save</button>
                   <button onClick={() => setEditing(null)} style={{ background: "#f0ebe4", color: "#7a6a5a", border: "none", borderRadius: 8, padding: "7px 14px", cursor: "pointer", fontSize: 13 }}>Cancel</button>
@@ -3191,7 +3039,7 @@ function budgetAuditTime(ts) {
   return new Date(ts).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
 }
 
-function BudgetPage({ currentUser, trafficDeals, trafficDealsError, isEditor }) {
+function BudgetPage({ currentUser, trafficDeals = [], trafficCosts = [], trafficBlocked = false, isEditor }) {
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
   const [lines, setLines] = useState({});          // line_key -> { id, monthly_budget, actuals }
@@ -3265,13 +3113,19 @@ function BudgetPage({ currentUser, trafficDeals, trafficDealsError, isEditor }) 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [year]);
 
-  // Total Sales actuals come from Traffic Board deals closed in each month.
-  const salesByMonth = useMemo(() => {
-    if (trafficDealsError) return Object.fromEntries(BUDGET_MONTHS.map(m => [m, 0]));
-    return salesClosedByDealMonth(trafficDeals, year);
-  }, [trafficDeals, trafficDealsError, year]);
+  // Total Sales and Total COGS come from Traffic Board deals that are Final
+  // (at least one cost, and costs locked). A failed load keeps the saved sheet.
+  const finalised = useMemo(
+    () => (trafficBlocked ? null : finalisedByMonth(trafficDeals, trafficCosts, year)),
+    [trafficBlocked, trafficDeals, trafficCosts, year],
+  );
 
-  const rows = computeBudgetRows(lines, salesByMonth, isEditor && showArchived);
+  const rows = computeBudgetRows(
+    lines,
+    finalised ? finalised.sales : null,
+    isEditor && showArchived,
+    finalised ? finalised.cogs : null,
+  );
   const visibleRows = isEditor ? rows : filterBudgetForStaff(rows, visibility);
   const net = rows.find(r => r.key === "net_profit") || { total: 0, budget: 0 };
   const archivedCount = Object.values(lines).filter(l => l.hidden).length;
@@ -3444,12 +3298,6 @@ function BudgetPage({ currentUser, trafficDeals, trafficDealsError, isEditor }) 
         </div>
       </div>
 
-      {trafficDealsError && (
-        <div style={{ background: "#fff4e0", color: "#8a5a12", borderRadius: 12, padding: "12px 16px", margin: "8px 0 14px", fontSize: 13 }}>
-          {trafficDealsError} Total Sales is blank until the deals load.
-        </div>
-      )}
-
       {isEditor && addOpen && (
         <div style={{ background: "#fff", borderRadius: 12, padding: "16px 18px", boxShadow: "0 2px 12px rgba(0,0,0,0.06)", margin: "8px 0 14px", display: "flex", gap: 10, alignItems: "flex-end", flexWrap: "wrap" }}>
           <div style={{ flex: "1 1 240px" }}>
@@ -3471,7 +3319,13 @@ function BudgetPage({ currentUser, trafficDeals, trafficDealsError, isEditor }) 
       <p style={{ color: "#9a8a7a", fontSize: 13, marginBottom: 16 }}>
         Monthly Budgeted target vs actuals per month, with live Net Profit (RM).{" "}
         Click any cell to edit · click a month header to mark it checked/good · 🗑 remove a line · ➕ add a line.
+        Total Sales and Total COGS come from Traffic Board deals once costs are locked (Final), so those two rows are not typed here.
       </p>
+      {trafficBlocked && (
+        <div style={{ background: "#fff8ee", border: "1px solid #f0dcc0", borderRadius: 10, padding: "10px 14px", marginBottom: 16, fontSize: 12.5, color: "#8a6a3a" }}>
+          Traffic Board could not be loaded. Total Sales and Total COGS are showing the last saved sheet values, not finalised deals.
+        </div>
+      )}
       {isEditor && (!hasHidden || !hasCustom) && (
         <div style={{ background: "#fff8ee", border: "1px solid #f0dcc0", borderRadius: 10, padding: "10px 14px", marginBottom: 16, fontSize: 12.5, color: "#8a6a3a" }}>
           ⚙️ To enable {[!hasHidden && "remove/restore", !hasCustom && "add custom lines"].filter(Boolean).join(" and ")}, run this once in Supabase → SQL Editor:
@@ -3541,7 +3395,7 @@ function BudgetPage({ currentUser, trafficDeals, trafficDealsError, isEditor }) 
                     )}
                     <span style={{ textDecoration: row.archived ? "line-through" : "none" }}>{row.label}</span>
                     {row.custom && <span title="Custom line" style={{ marginLeft: 5, fontSize: 10, color: "#c4704a", background: "#fde8d8", padding: "1px 5px", borderRadius: 99 }}>custom</span>}
-                    {row.autoActual && <span title="Actuals come from Traffic Board deals" style={{ marginLeft: 5, color: "#c4704a" }}>🔗</span>}
+                    {row.autoActual && <span title="From Traffic Board deals with costs locked (Final)" style={{ marginLeft: 5, color: "#c4704a" }}>🔗</span>}
                   </td>
 
                   {/* Budget */}
@@ -3554,8 +3408,9 @@ function BudgetPage({ currentUser, trafficDeals, trafficDealsError, isEditor }) 
 
                   {/* Months */}
                   {BUDGET_MONTHS.map(m => {
+                    const sourced = row.key === "total_sales" || row.key === "total_cogs";
                     const auto = row.autoActual;
-                    const editable = isEditor && !isComputed && !auto;
+                    const editable = isEditor && !isComputed && !auto && !sourced;
                     const cellId = `${row.key}:${m}`;
                     const display = isNpm ? (row.pct[m] ? row.pct[m].toFixed(1) + "%" : "–") : bFmt(row.actuals[m]);
                     return (
@@ -3584,7 +3439,7 @@ function BudgetPage({ currentUser, trafficDeals, trafficDealsError, isEditor }) 
         <span style={{ display: "flex", alignItems: "center", gap: 5 }}><span style={{ width: 12, height: 12, background: "#eafaf1", border: "1px solid #bfe9cf", borderRadius: 3 }} /> Month checked & good</span>
         <span style={{ display: "flex", alignItems: "center", gap: 5 }}><span style={{ width: 12, height: 12, background: "#fdeceb", border: "1px solid #f3c9c6", borderRadius: 3 }} /> Month not checked</span>
         <span style={{ display: "flex", alignItems: "center", gap: 5 }}><span style={{ width: 12, height: 12, background: "#fdf6e3", border: "1px solid #ecd9a8", borderRadius: 3 }} /> Monthly budgeted</span>
-        {isEditor && <span>🔗 Total Sales comes from the Traffic Board</span>}
+        {isEditor && <span>🔗 Total Sales and Total COGS come from Traffic Board deals with costs locked (Final)</span>}
       </div>
 
       {/* AUDIT TRAIL */}
