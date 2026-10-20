@@ -384,6 +384,564 @@ const CORE_DOCS = [
       ]},
     ],
   },
+  {
+    "id": "sop",
+    "title": "Master SOP",
+    "desc": "Staff guide from customer enquiry to after-sales.",
+    "icon": "📋",
+    "nodes": [
+      {
+        "t": "h1",
+        "c": "Saltycustoms Master SOP"
+      },
+      {
+        "t": "callout",
+        "c": "A staff guide from customer enquiry to after-sales."
+      },
+      {
+        "t": "kv",
+        "items": [
+          {
+            "key": "Teams",
+            "val": "Sales / Creative / Production / Logistics"
+          },
+          {
+            "key": "Order owner",
+            "val": "Assigned salesperson, from enquiry through after-sales"
+          },
+          {
+            "key": "Order system",
+            "val": "Odoo; dashboard for sales results"
+          },
+          {
+            "key": "Applies to",
+            "val": "All merchandise orders, including Express"
+          }
+        ]
+      },
+      {
+        "t": "h3",
+        "c": "Key Contacts"
+      },
+      {
+        "t": "steps",
+        "items": [
+          {
+            "label": "Adam",
+            "desc": "Designer (Creative)."
+          },
+          {
+            "label": "Rina",
+            "desc": "Manages production through her own suppliers (Rina-managed production)."
+          },
+          {
+            "label": "SC Production",
+            "desc": "The in-house production team."
+          },
+          {
+            "label": "Veloce",
+            "desc": "Books FedEx and Ninja Van deliveries."
+          }
+        ]
+      },
+      {
+        "t": "h2",
+        "c": "1. What This Guide Is For"
+      },
+      {
+        "t": "p",
+        "c": "Follow this guide to handle customer orders, prepare designs, arrange production and delivery, and look after customers after delivery."
+      },
+      {
+        "t": "h2",
+        "c": "2. Who Is Responsible"
+      },
+      {
+        "t": "p",
+        "c": "The assigned salesperson is responsible for the order from the first enquiry through delivery and after-sales. Sales checks progress, keeps the customer informed and makes sure problems are resolved. Creative, Production and Logistics do their assigned work. Sales stays responsible after passing work to another team."
+      },
+      {
+        "t": "h2",
+        "c": "3. The Order Steps"
+      },
+      {
+        "t": "ol",
+        "items": [
+          "Enquiry",
+          "Quote and visual",
+          "Customer confirms",
+          "Payment",
+          "Tech pack",
+          "Order confirmation",
+          "Production",
+          "Delivery",
+          "After-sales"
+        ]
+      },
+      {
+        "t": "h2",
+        "c": "4. Receive the Enquiry"
+      },
+      {
+        "t": "ul",
+        "items": [
+          "Sales records the enquiry in Odoo CRM: how the customer found us, their name, company, contact details, main contact person and who approves the purchase.",
+          "Ask for the product, quantity, colour, budget, delivery address, required arrival date, logo/design, printing method, logo size and position. Ask about the event or purpose if helpful.",
+          "Reply within 1 working hour. Once all needed details are complete, quote Express within the same working hour and Express Plus/Custom items within 24 working hours. Ask for missing details promptly and tell the customer when to expect the quote."
+        ]
+      },
+      {
+        "t": "callout",
+        "c": "WORKING HOURS — Monday to Saturday, 9am–6pm, excluding public holidays. Quote follow-ups are counted in calendar days from when the quote is sent."
+      },
+      {
+        "t": "h2",
+        "c": "5. Send the Quote and Follow Up"
+      },
+      {
+        "t": "ul",
+        "items": [
+          "Give a rough price first if helpful. Prepare the official quote in Odoo. Check the product, quantity, price, printing/design work, delivery charges, delivery date and payment terms before sending.",
+          "Every order, including Express, needs a full visual and tech pack. The visual may be sent with the quote. Creative prepares both. The customer approves the visual in writing first, then Sales confirms the tech pack before anything goes to Production.",
+          "If the customer does not reply, follow up on Day 1, Day 2 and Day 4 after the quote is sent (calendar days). Stop this schedule when they respond. After three unanswered follow-ups, put a suitable customer in KIV (keep in view) and set the next contact date. Mark Lost if they decline or are not a suitable fit. Automated reminders can help, but Sales remains responsible.",
+          "When the customer accepts the quote in writing, mark Won in Odoo and update the Salty dashboard. Create the invoice and send payment instructions and a payment link where available. Won means the customer accepted the quote in writing. The deal is confirmed only when payment is received. Won does not mean production can start."
+        ]
+      },
+      {
+        "t": "h2",
+        "c": "6. Check Payment"
+      },
+      {
+        "t": "p",
+        "c": "Full payment is required before production. Any exception, such as a deposit, customer purchase order or signed invoice instead of full payment, needs written approval from the Managing Director (MD)/supervisor before production. Save the agreed terms and balance due date in Odoo. Sales saves payment evidence in Odoo and follows unpaid amounts. Finance/Accounts checks that money was received and matches it to the invoice."
+      },
+      {
+        "t": "divider"
+      },
+      {
+        "t": "h2",
+        "c": "7. Prepare the Visual and Tech Pack"
+      },
+      {
+        "t": "p",
+        "c": "A visual shows how the product will look. A tech pack gives the factory the details needed to make it. Creative prepares both. The customer approves the visual, Sales confirms the tech pack, then the customer approves the final Order Confirmation (OC) with both files."
+      },
+      {
+        "t": "h3",
+        "c": "Checks Before Moving Ahead"
+      },
+      {
+        "t": "steps",
+        "items": [
+          {
+            "label": "Artwork",
+            "desc": "Ask about missing details. Do not guess. Ready when: Required files are checked and approved."
+          },
+          {
+            "label": "Before production",
+            "desc": "Check payment, files and customer approval. Ready when: The current OC is approved and Production accepts the job."
+          }
+        ]
+      },
+      {
+        "t": "h3",
+        "c": "Prepare the Visual"
+      },
+      {
+        "t": "ol",
+        "items": [
+          "Sales creates an Odoo Project card with the order number and name, then a Visual Request task. Tag the assigned designer (currently Adam). Attach the product reference, logo/design, sizes and brand guide.",
+          "Creative checks the instructions and artwork. Ask Sales about anything missing or unclear. Do not guess. Ask for better artwork or offer Touch-Up or AI Design Rescue where needed.",
+          "Prepare the visual. Recommend the logo size and position if needed. Check its direction, colour and whether it can be printed or made as shown.",
+          "Upload the visual to Odoo and tag Sales. Up to 2 rounds of visual changes are included. Upload every changed file and tell Sales.",
+          "Get the customer’s approval in writing and save it. Sales checks that the approved visual matches the order."
+        ]
+      },
+      {
+        "t": "h3",
+        "c": "Prepare the Tech Pack"
+      },
+      {
+        "t": "ol",
+        "items": [
+          "Sales requests the full tech pack in Odoo after the customer approves the visual. Payment must also be received and checked, unless the MD/supervisor approves a payment exception in writing.",
+          "Creative includes the final artwork, printing method, artwork size, product colour, quantities for each size and material details.",
+          "Upload the tech pack to Odoo and tag Sales. Sales checks and confirms it. If changes are needed, Creative updates the file, uploads it again and tells Sales."
+        ]
+      },
+      {
+        "t": "callout",
+        "c": "DO NOT SKIP — Every order needs a full visual and tech pack. Get visual approval before preparing the tech pack. Confirm the tech pack before sending the order to Production. Link both approved files to the current order confirmation."
+      },
+      {
+        "t": "h3",
+        "c": "Paid Design Packages"
+      },
+      {
+        "t": "p",
+        "c": "Sales adds a ‘Paid Design – [package]’ task to the order’s Odoo Project card with the customer details, job requirements and package purchased, and tags the designer. The designer introduces themselves to the customer by email, then collects instructions and files and agrees what work is included. Get customer approval of the final design. Agree extra charges before extra work. Send the approved design to Sales for order preparation."
+      },
+      {
+        "t": "steps",
+        "items": [
+          {
+            "label": "Touch-Up",
+            "desc": "3 design options; no rounds of changes included. Small final adjustments within the original instructions are allowed. Agree a quote for new ideas, changed instructions or extra revisions. Free work beyond minor adjustments needs written MD/supervisor approval."
+          },
+          {
+            "label": "Premium",
+            "desc": "3 design options in a presentation, plus up to 2 rounds of changes. Charge for further changes. Get final customer approval."
+          },
+          {
+            "label": "AI Design Rescue",
+            "desc": "Check the artwork and agree what work, changes and charges are included before starting. Rebuild or improve it, then get customer approval. Agree extra work and charges first."
+          }
+        ]
+      },
+      {
+        "t": "p",
+        "c": "Save paid-design files and approvals with the Odoo order. A paid-design approval does not replace the product visual, tech pack, payment checks or final order approval."
+      },
+      {
+        "t": "divider"
+      },
+      {
+        "t": "h2",
+        "c": "8. Get Final Order Approval"
+      },
+      {
+        "t": "p",
+        "c": "Sales prepares the Order Confirmation (OC), the document showing the final order details. The customer must approve the current OC, with its visual and tech pack, before Production accepts the job."
+      },
+      {
+        "t": "h3",
+        "c": "Prepare and Send the Order Confirmation (OC)"
+      },
+      {
+        "t": "ol",
+        "items": [
+          "Select the correct customer/company in Odoo. Put each product on its own Sales Order line. Add the product details, quantity, colour or Pantone colour code, printing or other customisation, quantities by size where needed, and final visual.",
+          "Keep the final visual on the product’s order line. Do not copy it into the separate Final Mockup Visual field in the OC tab.",
+          "Complete Order Name, Estimated Delivery Date, Delivery Instructions and Production / Special Instructions. The delivery date is when the customer must receive the goods. Check the OC PDF and attach the confirmed visual and tech pack.",
+          "Open the OC email, check it and click Send. Opening or closing the email window does not send it. Once sent, Odoo changes Draft to Sent for Approval and records the date."
+        ]
+      },
+      {
+        "t": "h3",
+        "c": "Confirm the Sample Choice and OC Approval"
+      },
+      {
+        "t": "p",
+        "c": "The customer replies to the OC email with A Physical Sample, B Photos/Videos Only or C No Sample Required. Production reads the choice in that email thread; Sales does not need to enter it again. If no choice arrives within 24 calendar hours, use B. For A or B, get written customer approval of the sample before making the full order. No reply does not mean approval."
+      },
+      {
+        "t": "p",
+        "c": "If the customer clearly chooses C, Production can proceed after OC, visual, tech pack and payment checks are complete. Sample exceptions need written MD/supervisor approval. After the customer approves the current OC, click Approve OC while it is Sent for Approval. Odoo sets Approved and records Approval Date."
+      },
+      {
+        "t": "h3",
+        "c": "If the Customer Changes the Order"
+      },
+      {
+        "t": "p",
+        "c": "Click Revise OC before sending changed details. Odoo increases the revision number, changes the status to Draft and clears the old sent and approval dates. Update the details and visual, create the new OC and send it for fresh customer approval. Never replace a reviewed OC without using Revise OC."
+      },
+      {
+        "t": "callout",
+        "c": "ODOO FIELDS — Odoo controls OC Status and OC Revision; do not change them yourself. The first OC is revision 0, with no revision label on the PDF. Changed OCs show Rev 1, Rev 2 and so on. New orders start with Production Status Pending."
+      },
+      {
+        "t": "h3",
+        "c": "Send the Approved Order to Production"
+      },
+      {
+        "t": "ul",
+        "items": [
+          "Check payment or the approved payment exception, the confirmed tech pack and customer approval. Fix anything that does not match before production.",
+          "Check product, quantity, colour, final design, logo size/position, printing method, arrival date, full address, recipient name, phone number and special instructions.",
+          "Check that the customer approved this OC revision, OC Status is Approved and Approval Date is filled in.",
+          "Choose Send to SC Production or Send to Rina Production. Check the To and CC recipients, message and final OC attachment, then click Send.",
+          "Production replies in the same email thread within 3 working hours to confirm receipt and raise missing details or risks. Sales follows up if late. For urgent orders, contact the handler directly to confirm acceptance. For Rina (managed production), her order-received email is this confirmation."
+        ]
+      },
+      {
+        "t": "callout",
+        "c": "USE THE LATEST APPROVED FILES — Production works from the latest approved OC, visual and tech pack. An old PDF or an informal message must not replace the approved instructions."
+      },
+      {
+        "t": "divider"
+      },
+      {
+        "t": "h2",
+        "c": "9. Make and Deliver the Order"
+      },
+      {
+        "t": "p",
+        "c": "Production handles suppliers and manufacturing. Logistics or the assigned handler arranges delivery. Sales checks progress and confirms the customer receives the goods."
+      },
+      {
+        "t": "h3",
+        "c": "Arrange Production"
+      },
+      {
+        "t": "steps",
+        "items": [
+          {
+            "label": "Internal Production",
+            "desc": "Get MD/supervisor approval for every supplier selected. Download the approved OC and files from Odoo. Use the Production email account and Saltycustoms Order template. Complete the supplier order, attach the supplier purchase order (PO) and artwork, then send."
+          },
+          {
+            "label": "Rina-managed Production",
+            "desc": "Introduce Rina (managed production) in the OC email thread. Rina confirms receipt within 3 working hours and checks details if needed. Get MD/supervisor approval for every supplier selected. Rina follows the approved instructions and sample choice, and arranges delivery. Any changed order needs a revised OC and fresh customer approval."
+          }
+        ]
+      },
+      {
+        "t": "callout",
+        "c": "For Rina-managed orders, the supplier invoice email goes only to Production. Remove the customer and all other recipients from that email before sending."
+      },
+      {
+        "t": "p",
+        "c": "For both routes, Production checks the supplier invoice details and amount against the approved supplier order. Save it in Google Drive > Supplier Invoice > [Relevant Year] and add its link to Odoo."
+      },
+      {
+        "t": "h3",
+        "c": "Keep the Customer Updated and Check Quality"
+      },
+      {
+        "t": "p",
+        "c": "Sales sends a welcome email within 48 hours of payment being received. Production gives progress updates at the Thursday sales meeting; Sales passes relevant updates to customers. Tell customers immediately about important problems. Check shipping, approvals and payment 1–2 days before delivery. Check delivery status on delivery day. Production and Rina (managed production) may contact customers directly while keeping Sales informed."
+      },
+      {
+        "t": "p",
+        "c": "Production checks goods against the approved OC, visual, tech pack and sample where used. Report defects or differences before sending the goods. Stay within the approved budget. Changes to product details, quality, promised delivery or budget need written MD/supervisor approval. Get customer approval if their agreed order changes."
+      },
+      {
+        "t": "h3",
+        "c": "Arrange Delivery"
+      },
+      {
+        "t": "p",
+        "c": "Keep delivery records for every order, including Rina-managed orders. Use the options below. Rina (managed production) may use her own delivery providers."
+      },
+      {
+        "t": "steps",
+        "items": [
+          {
+            "label": "Supplier delivery",
+            "desc": "Use direct supplier delivery where available. Otherwise use an option below."
+          },
+          {
+            "label": "International",
+            "desc": "Send Veloce (delivery bookings) a request using the FedEx Arrangement template."
+          },
+          {
+            "label": "Local courier",
+            "desc": "Ask Veloce to arrange Ninja Van using the Local Pickup template."
+          },
+          {
+            "label": "Local on demand",
+            "desc": "Book through your own Lalamove or Grab account. Choose the lowest-cost reliable option that meets the deadline. Pay first and submit a claim."
+          }
+        ]
+      },
+      {
+        "t": "p",
+        "c": "Veloce forwards the courier invoice when received. For delivery paid by a staff member, submit the receipt, order reference, delivery purpose and proof of payment to the supervisor within 7 calendar days. Approved claims are paid through the monthly expense cycle."
+      },
+      {
+        "t": "p",
+        "c": "Before sending, check the recipient, address, phone, quantities and packages. Save the provider, tracking/booking number, date sent and expected arrival in Odoo. Sales confirms receipt with the customer and saves delivery proof where available. The delivery handler investigates problems; Sales updates the customer. Extra costs and solutions need written MD/supervisor approval."
+      },
+      {
+        "t": "divider"
+      },
+      {
+        "t": "h2",
+        "c": "10. Look After the Customer After Delivery"
+      },
+      {
+        "t": "p",
+        "c": "Sales stays responsible after delivery. Confirm receipt, resolve order problems, track unpaid amounts and schedule future customer follow-ups."
+      },
+      {
+        "t": "h3",
+        "c": "Confirm Delivery and Follow Up"
+      },
+      {
+        "t": "ul",
+        "items": [
+          "Confirm that the customer received the goods. Sending them out does not complete the order.",
+          "Production may ask for delivery feedback and pass it to Sales. Sales saves feedback in Odoo CRM and handles after-sales follow-up.",
+          "Within 48 hours of delivery, ask whether everything arrived correctly and deal with any problems. Ask for feedback, testimonials and photos. Contact the customer again on Days 30, 60 and 90 after delivery, then every 2–3 months. Keep messages useful and relevant. Record feedback, future needs and next actions.",
+          "Sales follows up on unpaid amounts; Finance/Accounts checks and matches payments. Mark delivery work complete only after receipt is confirmed and order problems are resolved. Save payment evidence with the invoice in Odoo, and after-sales feedback and follow-ups in Odoo CRM.",
+          "Ask for a referral, invite the customer to SALTY+ and set a reminder to check whether they need another order."
+        ]
+      },
+      {
+        "t": "h3",
+        "c": "If an Order Changes or a Problem Happens"
+      },
+      {
+        "t": "p",
+        "c": "Record changes and check the cost and delivery impact. Revise the OC and get fresh customer approval. If production has started, Production first checks whether the change is possible and its effect on cost and timing. Sales gets customer agreement. Free changes or costs paid by Saltycustoms need written MD/supervisor approval."
+      },
+      {
+        "t": "p",
+        "c": "Sales records the problem, evidence, customer impact, person handling it, next action and next customer update. Creative checks artwork/file problems. Production checks manufacturing/supplier problems. Logistics checks delivery problems. Sales follows through until the solution is completed and the customer is informed."
+      },
+      {
+        "t": "p",
+        "c": "Report risks as soon as you notice them. For urgent problems, contact the MD/supervisor directly and record their decision in the order email thread. Refunds, reprints, replacements, discounts, waived charges and extra company-paid costs need their written approval. Sales ownership does not give permission to approve spending."
+      },
+      {
+        "t": "p",
+        "c": "If Sales is away, arrange a covering salesperson and tell the teams who to contact. Share the order status, deadlines and files. Make sure the covering person accepts the work."
+      },
+      {
+        "t": "divider"
+      },
+      {
+        "t": "h2",
+        "c": "11. Quick Order Checklist"
+      },
+      {
+        "t": "steps",
+        "items": [
+          {
+            "label": "Every stage",
+            "desc": "Who does what next, by when, and what is missing?"
+          },
+          {
+            "label": "Before production",
+            "desc": "Payment or written exception; approved visual; confirmed tech pack; approved current OC; delivery details; approved supplier; correct team; Production has accepted."
+          },
+          {
+            "label": "During production",
+            "desc": "Delivery plan, quality, sample approval where needed, customer updates and approved changes."
+          },
+          {
+            "label": "After delivery",
+            "desc": "Receipt confirmed; order problems resolved; payment tracked; feedback and follow-ups recorded."
+          }
+        ]
+      },
+      {
+        "t": "h3",
+        "c": "How to Give an Update — ONER"
+      },
+      {
+        "t": "steps",
+        "items": [
+          {
+            "label": "O — Outcome",
+            "desc": "What happened."
+          },
+          {
+            "label": "N — Next step",
+            "desc": "Who will do what, and by when."
+          },
+          {
+            "label": "E — Exception",
+            "desc": "Any problem."
+          },
+          {
+            "label": "R — Request",
+            "desc": "What help is needed."
+          }
+        ]
+      },
+      {
+        "t": "p",
+        "c": "Save important updates, evidence and approvals in Odoo."
+      },
+      {
+        "t": "divider"
+      },
+      {
+        "t": "h2",
+        "c": "12. Records and Who Can Approve"
+      },
+      {
+        "t": "p",
+        "c": "Keep quotes, customer invoices, payment evidence, visuals, tech packs, approvals, important messages and order status in Odoo. Use the Salty dashboard for sales results. Keep supplier invoices in Google Drive and link them to the order."
+      },
+      {
+        "t": "callout",
+        "c": "PAYMENT EXCEPTIONS — Deposits, customer purchase orders, signed invoices and other payment arrangements need written MD/supervisor approval before production. Save the approved terms and balance due date in Odoo. A purchase order, signed invoice or payment slip alone does not prove money was received."
+      },
+      {
+        "t": "h3",
+        "c": "Who Does What"
+      },
+      {
+        "t": "steps",
+        "items": [
+          {
+            "label": "Sales",
+            "desc": "Own the order throughout. Get approvals, check progress, update the customer, follow problems and unpaid amounts, and handle after-sales."
+          },
+          {
+            "label": "Creative",
+            "desc": "Prepare a full visual and tech pack for every order. Upload changes and keep approval records."
+          },
+          {
+            "label": "Production",
+            "desc": "Get supplier approval, make the approved order, check quality and supplier invoices, and confirm receipt of the job within 3 working hours."
+          },
+          {
+            "label": "Logistics / handler",
+            "desc": "Arrange and record delivery, investigate delivery problems and supply delivery proof and claim evidence."
+          },
+          {
+            "label": "Finance / Accounts",
+            "desc": "Check money received, match it to invoices and pay approved delivery claims through the monthly expense cycle."
+          },
+          {
+            "label": "MD/supervisor",
+            "desc": "Approve in writing: every supplier selection, payment exceptions, changes to product, quality, delivery or budget, solutions and extra company costs. The supervisor maintains this guide; the MD approves it and any policy changes."
+          }
+        ]
+      },
+      {
+        "t": "p",
+        "c": "Track sale confirmation, delivery, payment and after-sales separately. Mark Won when the customer accepts the quote in writing. Do not use Won as permission to start production."
+      },
+      {
+        "t": "h2",
+        "c": "13. Keep This Guide Up to Date"
+      },
+      {
+        "t": "steps",
+        "items": [
+          {
+            "label": "Who owns it",
+            "desc": "The supervisor in charge keeps this guide up to date. The MD approves any change."
+          },
+          {
+            "label": "Where it lives",
+            "desc": "The staff copy is read-only in the dashboard Documents tab. The editable master and older versions are in the controlled Google Drive folder."
+          },
+          {
+            "label": "When it's reviewed",
+            "desc": "Every 6 months, or sooner if the process changes."
+          },
+          {
+            "label": "When it changes",
+            "desc": "The supervisor walks the team through what's new, checks that Odoo button names still match, and shares any updated templates."
+          },
+          {
+            "label": "New starters",
+            "desc": "Go through it in training and confirm they've read and understood it, and this is recorded."
+          },
+          {
+            "label": "Not sure what to do?",
+            "desc": "Ask your supervisor before you act. Save the question, answer and any approval with the order."
+          }
+        ]
+      }
+    ]
+  },
 ];
 
 // ── DB ROW MAPPERS ────────────────────────────────────────────────────────────
