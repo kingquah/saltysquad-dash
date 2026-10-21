@@ -15,6 +15,36 @@ export const COMMISSION_PEOPLE = [
   { key: "king", name: "King Quah", short: "King" },
 ];
 
+// Who may open the Commissions screen. Edit this list to add or remove someone.
+// A person matches on users.id or on email. Marking a batch paid is separate
+// and stays limited to role admin.
+export const COMMISSION_VIEWERS = [
+  { id: 1, email: "king@saltycustoms.com" },
+  { id: 2, email: "wilson@saltycustoms.com" },
+  { id: 3, email: "puteri@saltycustoms.com" },
+];
+
+export function canViewCommissions(user) {
+  if (!user) return false;
+  const id = Number(user.id);
+  const email = String(user.email || "").trim().toLowerCase();
+  return COMMISSION_VIEWERS.some(viewer =>
+    (Number.isFinite(id) && id === viewer.id) || (email && email === viewer.email)
+  );
+}
+
+export function commissionsRequestedFromLocation(loc) {
+  if (!loc) return false;
+  const hash = String(loc.hash || "").replace(/^#/, "").split(/[?&]/)[0].trim().toLowerCase();
+  let query = "";
+  try {
+    query = new URLSearchParams(loc.search || "").get("page") || "";
+  } catch {
+    query = "";
+  }
+  return hash === "commissions" || String(query).trim().toLowerCase() === "commissions";
+}
+
 export const JULY_2026_BATCH_ID = "20260715-0000-4000-8000-000000000001";
 
 // King's approved July 2026 payout, after Justin's RM 7,856.18 Instructure
