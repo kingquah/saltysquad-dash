@@ -48,7 +48,7 @@ async function readBoard() {
   };
 }
 
-export function TrafficBoardPage({ currentUser, users, canWrite }) {
+export function TrafficBoardPage({ currentUser, users, canWrite, onDealsChanged }) {
   const [loading, setLoading] = useState(true);
   const [missing, setMissing] = useState(false);
   const [loadError, setLoadError] = useState("");
@@ -122,6 +122,7 @@ export function TrafficBoardPage({ currentUser, users, canWrite }) {
     if (error) return { errors: [friendlyWriteError(error)] };
     await writeAudit(data, [{ field: "deal", old_value: null, new_value: dealSnapshot(data) }]);
     await refresh();
+    onDealsChanged?.();
     return { errors: [] };
   }
 
@@ -136,6 +137,7 @@ export function TrafficBoardPage({ currentUser, users, canWrite }) {
     if (error) return { errors: [friendlyWriteError(error)] };
     await writeAudit(data, dealAuditDiff(deal, data));
     await refresh();
+    onDealsChanged?.();
     return { errors: [] };
   }
 
@@ -146,6 +148,7 @@ export function TrafficBoardPage({ currentUser, users, canWrite }) {
     if (error) { window.alert(friendlyWriteError(error)); return; }
     await writeAudit(deal, [{ field: "deal", old_value: dealSnapshot(deal), new_value: "deleted" }]);
     await refresh();
+    onDealsChanged?.();
   }
 
   async function onSaveCollection(deal, draft) {
@@ -222,6 +225,7 @@ export function TrafficBoardPage({ currentUser, users, canWrite }) {
       new_value: costSnapshot(data),
     }]);
     await refresh();
+    onDealsChanged?.();
     return { errors: [] };
   }
 
@@ -234,6 +238,7 @@ export function TrafficBoardPage({ currentUser, users, canWrite }) {
     if (error) { window.alert(friendlyWriteError(error)); return; }
     await writeAudit(deal, [{ field: "cost", old_value: costSnapshot(row), new_value: null }]);
     await refresh();
+    onDealsChanged?.();
   }
 
   async function onSetLocked(deal, locked) {
@@ -254,6 +259,7 @@ export function TrafficBoardPage({ currentUser, users, canWrite }) {
       new_value: locked ? "locked" : "unlocked",
     }]);
     await refresh();
+    onDealsChanged?.();
     return { errors: [] };
   }
 

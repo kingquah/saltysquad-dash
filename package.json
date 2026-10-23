@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "node --test traffic-board-logic.test.js traffic-board-render.test.js checklist-month-edit.test.js commission-logic.test.js commission-render.test.js"
+    "test": "node --test sales-source.test.js traffic-board-logic.test.js traffic-board-render.test.js checklist-month-edit.test.js commission-logic.test.js commission-render.test.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.99.0",

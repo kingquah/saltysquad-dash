@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef, useMemo, Fragment } from "react";
 import { supabase } from "./supabase";
-import { BUDGET_STRUCTURE, BUDGET_MONTHS, BUDGET_INPUT_KEYS, BUDGET_LABELS, BUDGET_ADDABLE_SECTIONS, SECTION_TO_SUBTOTAL, emptyActuals, computeBudgetRows, filterBudgetForStaff, salesClosedByBudgetMonth } from "./budget-data.js";
+import { BUDGET_STRUCTURE, BUDGET_MONTHS, BUDGET_INPUT_KEYS, BUDGET_LABELS, BUDGET_ADDABLE_SECTIONS, SECTION_TO_SUBTOTAL, emptyActuals, computeBudgetRows, filterBudgetForStaff } from "./budget-data.js";
+import { dealsInRange, finalisedByMonth, paperworkNote, reconcileSales, salesClosedByDealMonth, sumDealAmounts } from "./sales-source.js";
+import { formatRM } from "./traffic-board-logic.js";
 import { DEFAULT_ROCKS } from "./rocks-seed.js";
 import { TrafficBoardPage, LiveCashIndicator } from "./traffic-board.jsx";
 import { CommissionsPage } from "./commissions.jsx";
@@ -1054,7 +1056,7 @@ function LoadingScreen() {
 
 // ── SCOREBOARD PAGE ───────────────────────────────────────────────────────────
 
-function ScoreboardPage({ currentUser, users, isAdmin, onSalesEntriesChanged }) {
+function ScoreboardPage({ currentUser, users, isAdmin, onSalesEntriesChanged, deals = [], dealsError = null }) {
   const now = new Date();
   const todayStr = now.toISOString().slice(0, 10);
   const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
@@ -1194,6 +1196,9 @@ function ScoreboardPage({ currentUser, users, isAdmin, onSalesEntriesChanged }) 
     { label: "Invoices Issued", icon: "🧾", key: "invoice",      color: "#8a4010", bg: "#ffe5cc" },
     { label: "Quotations Sent", icon: "📋", key: "quotation",    color: "#555555", bg: "#e8e8e8" },
   ];
+  const boardInRange = sumDealAmounts(dealsInRange(deals, dateFrom, dateTo));
+  const salesGap = reconcileSales(totals.sales_closed, boardInRange);
+  const trafficUnavailable = !!dealsError && deals.length === 0;
 
   const thStyle = (align) => ({ padding: "10px 16px", textAlign: align || "left", color: "#7a6a5a", fontWeight: 600, fontSize: 12, borderBottom: "1.5px solid #f0ebe4", whiteSpace: "nowrap" });
 
@@ -1226,6 +1231,19 @@ function ScoreboardPage({ currentUser, users, isAdmin, onSalesEntriesChanged }) 
             <div style={{ fontSize: 22, marginBottom: 6 }}>{card.icon}</div>
             <div style={{ fontSize: 11, color: "#9a8a7a", fontWeight: 600, marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.5 }}>{card.label}</div>
             <div style={{ fontSize: 18, fontWeight: 800, color: card.color }}>{fmtRM(totals[card.key])}</div>
+            {card.key === "sales_closed" && (
+              <div style={{ marginTop: 8, fontSize: 11, color: "#7a6a5a", lineHeight: 1.45, fontWeight: 600 }}>
+                {trafficUnavailable ? "Traffic Board total unavailable." : (
+                  <>
+                    <div>On Traffic Board: {formatRM(boardInRange)}</div>
+                    <div>
+                      {paperworkNote(salesGap.gap)}
+                      {salesGap.gap !== 0 ? `: ${formatRM(Math.abs(salesGap.gap))}` : ""}
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
           </div>
         ))}
       </div>
@@ -1540,6 +1558,9 @@ export default function App() {
   const [leaveRequests, setLeaveRequests] = useState([]);
   const [sales, setSales] = useState([]);
   const [salesEntries, setSalesEntries] = useState([]);
+  const [trafficDeals, setTrafficDeals] = useState([]);
+  const [trafficCosts, setTrafficCosts] = useState([]);
+  const [trafficDealsError, setTrafficDealsError] = useState(null);
   const [checklists, setChecklists] = useState({});
   const [docModal, setDocModal] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -1547,12 +1568,14 @@ export default function App() {
   useEffect(() => {
     let cancelled = false;
     async function loadData() {
-      const [usersRes, leaveRes, salesRes, salesEntriesRes, checklistRes] = await Promise.all([
+      const [usersRes, leaveRes, salesRes, salesEntriesRes, checklistRes, dealsRes, costsRes] = await Promise.all([
         supabase.from("users").select(USER_PUBLIC_COLUMNS),
         supabase.from("leave_requests").select("*"),
         supabase.from("sales_targets").select("*"),
         supabase.from("sales_entries").select("amount, entry_date").eq("category", "sales_closed"),
         supabase.from("checklist_submissions").select("*"),
+        supabase.from("traffic_deals").select("id, amount_myr, deal_close_date, costs_locked"),
+        supabase.from("traffic_costs").select("deal_id, amount"),
       ]);
       if (cancelled) return;
 
@@ -1560,6 +1583,13 @@ export default function App() {
       if (leaveRes.data) setLeaveRequests(leaveRes.data.map(mapLeave));
       if (salesRes.data) setSales(salesRes.data.map(mapSales));
       if (salesEntriesRes.data) setSalesEntries(salesEntriesRes.data);
+      if (dealsRes.error || costsRes.error) {
+        setTrafficDealsError(dealsRes.error || costsRes.error);
+      } else {
+        setTrafficDealsError(null);
+        setTrafficDeals(dealsRes.data || []);
+        setTrafficCosts(costsRes.data || []);
+      }
 
       console.log("[loadData] checklist_submissions — rows:", checklistRes.data?.length, "error:", checklistRes.error);
       if (checklistRes.data) {
@@ -1599,6 +1629,24 @@ export default function App() {
       .eq("category", "sales_closed");
     if (data) setSalesEntries(data);
   }
+
+  // Keep Dashboard, Scoreboard reconciliation, and Budget in step with the
+  // Traffic Board. A failed refresh leaves the last good lists in place.
+  async function refreshTrafficDeals() {
+    const [dealsRes, costsRes] = await Promise.all([
+      supabase.from("traffic_deals").select("id, amount_myr, deal_close_date, costs_locked"),
+      supabase.from("traffic_costs").select("deal_id, amount"),
+    ]);
+    if (dealsRes.error || costsRes.error) {
+      setTrafficDealsError(dealsRes.error || costsRes.error);
+      return;
+    }
+    setTrafficDealsError(null);
+    setTrafficDeals(dealsRes.data || []);
+    setTrafficCosts(costsRes.data || []);
+  }
+
+  const trafficBlocked = !!trafficDealsError && trafficDeals.length === 0;
 
   async function handleLeaveAction(id, action) {
     const req = leaveRequests.find(l => l.id === id);
@@ -1662,15 +1710,15 @@ export default function App() {
 
       {/* PAGE CONTENT */}
       <main className="main-content" style={{ flex: 1, padding: "28px 32px", maxWidth: page === "traffic" || page === "commissions" ? 1440 : 1200, width: "100%", margin: "0 auto", ...(page === "traffic" || page === "commissions" ? { boxSizing: "border-box", minWidth: 0 } : {}) }}>
-        {page === "dashboard" && <DashboardPage currentUser={currentUser} users={users} leaveRequests={leaveRequests} checklists={checklists} sales={salesLive} setSales={setSales} isAdmin={isAdmin} setPage={setPage} onLeaveAction={handleLeaveAction} />}
+        {page === "dashboard" && <DashboardPage currentUser={currentUser} users={users} leaveRequests={leaveRequests} checklists={checklists} sales={salesLive} setSales={setSales} isAdmin={isAdmin} setPage={setPage} onLeaveAction={handleLeaveAction} trafficDeals={trafficDeals} trafficBlocked={trafficBlocked} />}
         {page === "leave" && <LeavePage currentUser={currentUser} users={users} setUsers={setUsers} leaveRequests={leaveRequests} setLeaveRequests={setLeaveRequests} isAdmin={isAdmin} onLeaveAction={handleLeaveAction} />}
 
         {page === "checklist" && <ChecklistPage currentUser={currentUser} users={users} checklists={checklists} setChecklists={setChecklists} isAdmin={isAdmin} />}
-        {page === "budget" && isAdmin && <BudgetPage currentUser={currentUser} salesEntries={salesEntries} isEditor={isAdmin} />}
+        {page === "budget" && isAdmin && <BudgetPage currentUser={currentUser} trafficDeals={trafficDeals} trafficCosts={trafficCosts} trafficBlocked={trafficBlocked} isEditor={isAdmin} />}
         {page === "docs" && <DocsPage docModal={docModal} setDocModal={setDocModal} />}
-        {page === "scoreboard" && <ScoreboardPage currentUser={currentUser} users={users} isAdmin={isAdmin} onSalesEntriesChanged={refreshSalesEntries} />}
+        {page === "scoreboard" && <ScoreboardPage currentUser={currentUser} users={users} isAdmin={isAdmin} onSalesEntriesChanged={refreshSalesEntries} deals={trafficDeals} dealsError={trafficDealsError} />}
         {page === "rocks" && <RocksPage currentUser={currentUser} users={users} isAdmin={isAdmin} />}
-        {page === "traffic" && <TrafficBoardPage currentUser={currentUser} users={users} canWrite={isAdmin} />}
+        {page === "traffic" && <TrafficBoardPage currentUser={currentUser} users={users} canWrite={isAdmin} onDealsChanged={refreshTrafficDeals} />}
         {page === "commissions" && <CommissionsPage currentUser={currentUser} users={users} canMarkPaid={isSuperAdmin} />}
         {page === "admin" && isSuperAdmin && <AdminPage users={users} setUsers={setUsers} leaveRequests={leaveRequests} setLeaveRequests={setLeaveRequests} checklists={checklists} />}
       </main>
@@ -2208,7 +2256,7 @@ function RocksPage({ currentUser, isAdmin }) {
   );
 }
 
-function DashboardPage({ currentUser, users, leaveRequests, checklists, sales, setSales, isAdmin, setPage, onLeaveAction }) {
+function DashboardPage({ currentUser, users, leaveRequests, checklists, sales, setSales, isAdmin, setPage, onLeaveAction, trafficDeals = [], trafficBlocked = false }) {
   const now = new Date();
   const currentYear = now.getFullYear();
   const currentMonthIdx = now.getMonth();
@@ -2299,6 +2347,23 @@ function DashboardPage({ currentUser, users, leaveRequests, checklists, sales, s
   const totalPct      = totalTarget > 0 && totalAchieved > 0 ? Math.round((totalAchieved / totalTarget) * 100) : 0;
   const totalColor    = totalPct >= 90 ? "#27ae60" : totalPct >= 50 ? "#f39c12" : "#e74c3c";
 
+  // Achieved stays the Scoreboard live tally. Traffic Board is every recorded
+  // deal (not only final ones). The gap is read-only.
+  const boardByMonth = salesClosedByDealMonth(trafficDeals, currentYear);
+  const currentBoard = boardByMonth[currentMonthName] || 0;
+  const currentGap = reconcileSales(currentAchieved, currentBoard);
+  const ytdBoard = MONTHS.slice(0, currentMonthIdx + 1).reduce((sum, m) => sum + (boardByMonth[m] || 0), 0);
+  const ytdGap = reconcileSales(ytdAchieved, ytdBoard);
+  const countedMonths = allMonths.filter(r => !r.isFuture);
+  const totalBoard = countedMonths.reduce((sum, r) => sum + (boardByMonth[r.m] || 0), 0);
+  const totalLive = countedMonths.reduce((sum, r) => sum + r.achieved, 0);
+  const totalGap = reconcileSales(totalLive, totalBoard);
+
+  function gapText(gap) {
+    if (gap === 0) return paperworkNote(0);
+    return `${paperworkNote(gap)}: ${formatRM(Math.abs(gap))}`;
+  }
+
   const SmallCard = ({ title, children, accent, onClick }) => (
     <div onClick={onClick} style={{ background: "#fff", borderRadius: 16, padding: "22px 24px", boxShadow: "0 2px 12px rgba(0,0,0,0.06)", borderLeft: `4px solid ${accent}`, cursor: onClick ? "pointer" : "default", transition: "transform 0.15s, box-shadow 0.15s" }}
       onMouseEnter={e => { if(onClick) { e.currentTarget.style.transform="translateY(-2px)"; e.currentTarget.style.boxShadow="0 6px 20px rgba(0,0,0,0.1)"; }}}
@@ -2339,6 +2404,9 @@ function DashboardPage({ currentUser, users, leaveRequests, checklists, sales, s
               </div>
               <div style={{ fontSize: 22, fontWeight: 700, color: "#3a2a1a", fontFamily: SF_PRO }}>
                 {currentMonthName} {currentYear}
+              </div>
+              <div style={{ marginTop: 6, fontSize: 12, color: "#9a8a7a" }}>
+                Achieved is the Scoreboard live tally.
               </div>
               {hitTarget && (
                 <div style={{ marginTop: 8, fontSize: 14, fontWeight: 700, color: "#27ae60" }}>
@@ -2382,6 +2450,15 @@ function DashboardPage({ currentUser, users, leaveRequests, checklists, sales, s
               <div style={{ width: `${currentPct}%`, height: "100%", background: salesColor, borderRadius: 99, transition: "width 0.6s ease" }} />
             </div>
           </div>
+
+          <div style={{ marginTop: 16, background: "#faf7f3", borderRadius: 12, padding: "12px 14px", fontSize: 13, color: "#5a4a3a", lineHeight: 1.5 }}>
+            {trafficBlocked ? "Traffic Board total is unavailable right now. Achieved above is still the Scoreboard live tally." : (
+              <>
+                <div>On Traffic Board: <strong style={{ color: "#3a2a1a" }}>{formatRM(currentBoard)}</strong></div>
+                <div>{gapText(currentGap.gap)}</div>
+              </>
+            )}
+          </div>
         </div>
 
         {/* B) Year-to-Date Summary */}
@@ -2407,6 +2484,12 @@ function DashboardPage({ currentUser, users, leaveRequests, checklists, sales, s
           <div style={{ background: "#ede8e3", borderRadius: 99, height: 8, overflow: "hidden" }}>
             <div style={{ width: `${ytdPct}%`, height: "100%", background: ytdColor, borderRadius: 99, transition: "width 0.6s ease" }} />
           </div>
+          {!trafficBlocked && (
+            <div style={{ marginTop: 12, fontSize: 12, color: "#7a6a5a", lineHeight: 1.5 }}>
+              On Traffic Board: <strong style={{ color: "#3a2a1a" }}>{formatRM(ytdBoard)}</strong>
+              {" · "}{gapText(ytdGap.gap)}
+            </div>
+          )}
         </div>
 
         {/* C) Monthly Breakdown Table */}
@@ -2415,11 +2498,11 @@ function DashboardPage({ currentUser, users, leaveRequests, checklists, sales, s
             Monthly Breakdown — {currentYear}
           </div>
           <div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, minWidth: 480 }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, minWidth: 760 }}>
               <thead>
                 <tr style={{ borderBottom: "2px solid #f0ebe4" }}>
-                  {["Month", "Target", "Achieved", "%", "Status"].map((h, i) => (
-                    <th key={h} style={{ textAlign: i === 0 ? "left" : i === 4 ? "center" : "right", padding: "8px 12px", color: "#9a8a7a", fontWeight: 700, fontSize: 11, textTransform: "uppercase", letterSpacing: 0.5, fontFamily: SF_PRO }}>
+                  {["Month", "Target", "Achieved", "Traffic Board", "Difference", "%", "Status"].map((h, i) => (
+                    <th key={h} style={{ textAlign: i === 0 ? "left" : i === 6 ? "center" : "right", padding: "8px 12px", color: "#9a8a7a", fontWeight: 700, fontSize: 11, textTransform: "uppercase", letterSpacing: 0.5, fontFamily: SF_PRO }}>
                       {h}
                     </th>
                   ))}
@@ -2453,6 +2536,12 @@ function DashboardPage({ currentUser, users, leaveRequests, checklists, sales, s
                     <td style={{ padding: "11px 12px", textAlign: "right", fontWeight: r.achieved > 0 ? 600 : 400, color: r.isFuture ? "#b0a09a" : r.hit ? "#27ae60" : r.achieved > 0 ? "#e74c3c" : "#b0a09a" }}>
                       {r.isFuture ? "—" : `RM ${r.achieved.toLocaleString()}`}
                     </td>
+                    <td style={{ padding: "11px 12px", textAlign: "right", color: "#5a4a3a" }}>
+                      {r.isFuture || trafficBlocked ? "—" : formatRM(boardByMonth[r.m] || 0)}
+                    </td>
+                    <td style={{ padding: "11px 12px", textAlign: "right", color: "#7a6a5a", fontSize: 12 }} title={r.isFuture || trafficBlocked ? "" : paperworkNote(reconcileSales(r.achieved, boardByMonth[r.m] || 0).gap)}>
+                      {r.isFuture || trafficBlocked ? "—" : formatRM(reconcileSales(r.achieved, boardByMonth[r.m] || 0).gap)}
+                    </td>
                     <td style={{ padding: "11px 12px", textAlign: "right", fontWeight: 700, color: r.isFuture ? "#b0a09a" : r.pctVal >= 90 ? "#27ae60" : r.pctVal >= 50 ? "#f39c12" : r.pctVal > 0 ? "#e74c3c" : "#b0a09a" }}>
                       {r.isFuture || r.pctVal === 0 ? "—" : `${r.pctVal}%`}
                     </td>
@@ -2466,11 +2555,16 @@ function DashboardPage({ currentUser, users, leaveRequests, checklists, sales, s
                   <td style={{ padding: "12px 12px", fontWeight: 700, color: "#3a2a1a", fontFamily: SF_PRO }}>TOTAL</td>
                   <td style={{ padding: "12px 12px", textAlign: "right", fontWeight: 700, color: "#3a2a1a" }}>RM {totalTarget.toLocaleString()}</td>
                   <td style={{ padding: "12px 12px", textAlign: "right", fontWeight: 700, color: totalColor }}>RM {totalAchieved.toLocaleString()}</td>
+                  <td style={{ padding: "12px 12px", textAlign: "right", fontWeight: 700, color: "#3a2a1a" }}>{trafficBlocked ? "—" : formatRM(totalBoard)}</td>
+                  <td style={{ padding: "12px 12px", textAlign: "right", fontWeight: 700, color: "#5a4a3a", fontSize: 12 }} title={trafficBlocked ? "" : paperworkNote(totalGap.gap)}>{trafficBlocked ? "—" : formatRM(totalGap.gap)}</td>
                   <td style={{ padding: "12px 12px", textAlign: "right", fontWeight: 700, color: totalColor }}>{totalPct > 0 ? `${totalPct}%` : "—"}</td>
                   <td />
                 </tr>
               </tbody>
             </table>
+          </div>
+          <div style={{ marginTop: 10, fontSize: 12, color: "#9a8a7a", lineHeight: 1.5 }}>
+            Achieved is the Scoreboard live tally. Traffic Board is every deal recorded that month. A positive difference is pending paperwork (on the Scoreboard, not yet on the Traffic Board).
           </div>
         </div>
       </div>
@@ -3503,7 +3597,7 @@ function budgetAuditTime(ts) {
   return new Date(ts).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
 }
 
-function BudgetPage({ currentUser, salesEntries, isEditor }) {
+function BudgetPage({ currentUser, trafficDeals = [], trafficCosts = [], trafficBlocked = false, isEditor }) {
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
   const [lines, setLines] = useState({});          // line_key -> { id, monthly_budget, actuals }
@@ -3577,10 +3671,19 @@ function BudgetPage({ currentUser, salesEntries, isEditor }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [year]);
 
-  // Total Sales actuals auto-linked from Scoreboard "Sales Closed".
-  const salesByMonth = useMemo(() => salesClosedByBudgetMonth(salesEntries, year), [salesEntries, year]);
+  // Total Sales and Total COGS come from Traffic Board deals that are Final
+  // (at least one cost, and costs locked). A failed load keeps the saved sheet.
+  const finalised = useMemo(
+    () => (trafficBlocked ? null : finalisedByMonth(trafficDeals, trafficCosts, year)),
+    [trafficBlocked, trafficDeals, trafficCosts, year],
+  );
 
-  const rows = computeBudgetRows(lines, salesByMonth, isEditor && showArchived);
+  const rows = computeBudgetRows(
+    lines,
+    finalised ? finalised.sales : null,
+    isEditor && showArchived,
+    finalised ? finalised.cogs : null,
+  );
   const visibleRows = isEditor ? rows : filterBudgetForStaff(rows, visibility);
   const net = rows.find(r => r.key === "net_profit") || { total: 0, budget: 0 };
   const archivedCount = Object.values(lines).filter(l => l.hidden).length;
@@ -3774,7 +3877,13 @@ function BudgetPage({ currentUser, salesEntries, isEditor }) {
       <p style={{ color: "#9a8a7a", fontSize: 13, marginBottom: 16 }}>
         Monthly Budgeted target vs actuals per month, with live Net Profit (RM).{" "}
         Click any cell to edit · click a month header to mark it checked/good · 🗑 remove a line · ➕ add a line.
+        Total Sales and Total COGS come from Traffic Board deals once costs are locked (Final), so those two rows are not typed here.
       </p>
+      {trafficBlocked && (
+        <div style={{ background: "#fff8ee", border: "1px solid #f0dcc0", borderRadius: 10, padding: "10px 14px", marginBottom: 16, fontSize: 12.5, color: "#8a6a3a" }}>
+          Traffic Board could not be loaded. Total Sales and Total COGS are showing the last saved sheet values, not finalised deals.
+        </div>
+      )}
       {isEditor && (!hasHidden || !hasCustom) && (
         <div style={{ background: "#fff8ee", border: "1px solid #f0dcc0", borderRadius: 10, padding: "10px 14px", marginBottom: 16, fontSize: 12.5, color: "#8a6a3a" }}>
           ⚙️ To enable {[!hasHidden && "remove/restore", !hasCustom && "add custom lines"].filter(Boolean).join(" and ")}, run this once in Supabase → SQL Editor:
@@ -3844,7 +3953,7 @@ function BudgetPage({ currentUser, salesEntries, isEditor }) {
                     )}
                     <span style={{ textDecoration: row.archived ? "line-through" : "none" }}>{row.label}</span>
                     {row.custom && <span title="Custom line" style={{ marginLeft: 5, fontSize: 10, color: "#c4704a", background: "#fde8d8", padding: "1px 5px", borderRadius: 99 }}>custom</span>}
-                    {row.autoActual && <span title="Actuals auto-linked from Scoreboard Sales Closed" style={{ marginLeft: 5, color: "#c4704a" }}>🔗</span>}
+                    {row.autoActual && <span title="From Traffic Board deals with costs locked (Final)" style={{ marginLeft: 5, color: "#c4704a" }}>🔗</span>}
                   </td>
 
                   {/* Budget */}
@@ -3857,8 +3966,9 @@ function BudgetPage({ currentUser, salesEntries, isEditor }) {
 
                   {/* Months */}
                   {BUDGET_MONTHS.map(m => {
+                    const sourced = row.key === "total_sales" || row.key === "total_cogs";
                     const auto = row.autoActual;
-                    const editable = isEditor && !isComputed && !auto;
+                    const editable = isEditor && !isComputed && !auto && !sourced;
                     const cellId = `${row.key}:${m}`;
                     const display = isNpm ? (row.pct[m] ? row.pct[m].toFixed(1) + "%" : "–") : bFmt(row.actuals[m]);
                     return (
@@ -3887,7 +3997,7 @@ function BudgetPage({ currentUser, salesEntries, isEditor }) {
         <span style={{ display: "flex", alignItems: "center", gap: 5 }}><span style={{ width: 12, height: 12, background: "#eafaf1", border: "1px solid #bfe9cf", borderRadius: 3 }} /> Month checked & good</span>
         <span style={{ display: "flex", alignItems: "center", gap: 5 }}><span style={{ width: 12, height: 12, background: "#fdeceb", border: "1px solid #f3c9c6", borderRadius: 3 }} /> Month not checked</span>
         <span style={{ display: "flex", alignItems: "center", gap: 5 }}><span style={{ width: 12, height: 12, background: "#fdf6e3", border: "1px solid #ecd9a8", borderRadius: 3 }} /> Monthly budgeted</span>
-        {isEditor && <span>🔗 auto-linked from Scoreboard</span>}
+        {isEditor && <span>🔗 Total Sales and Total COGS come from Traffic Board deals with costs locked (Final)</span>}
       </div>
 
       {/* AUDIT TRAIL */}
